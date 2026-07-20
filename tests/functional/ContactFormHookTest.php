@@ -99,6 +99,17 @@ final class ContactFormHookTest extends TestCase
         self::assertSame([], $submission->getErrors());
     }
 
+    public function testConsoleRequestIsIgnored(): void
+    {
+        $this->enablePlugin();
+        [$submission, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertFalse($event->isSpam);
+        self::assertSame([], $submission->getErrors());
+    }
+
     private function bootApp(): void
     {
         // Craft's PhpMessageSource resolves @translations for site-level

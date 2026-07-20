@@ -68,6 +68,11 @@ final class Plugin extends \craft\base\Plugin
                     return;
                 }
 
+                $request = Craft::$app->getRequest();
+                if (!$request instanceof \craft\web\Request) {
+                    return;
+                }
+
                 // Contact Form short-circuits spam to a silent success, so the
                 // submission error is informational only (kept in case a future
                 // Contact Form version surfaces errors for spam submissions).
@@ -79,7 +84,7 @@ final class Plugin extends \craft\base\Plugin
                     );
                 };
 
-                $token = Craft::$app->getRequest()->getBodyParam('cf-turnstile-response');
+                $token = $request->getBodyParam('cf-turnstile-response');
 
                 // Reject non-string values (e.g. cf-turnstile-response[]=x)
                 // instead of letting verify(string) raise a TypeError.

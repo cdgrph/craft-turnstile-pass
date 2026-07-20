@@ -31,6 +31,11 @@ final class TurnstileService extends \craft\base\Component
             return $this->result(true);
         }
 
+        if (strlen($token) > 2048) {
+            Craft::warning('Turnstile verification rejected a token exceeding 2048 bytes.', __METHOD__);
+            return $this->result(false, ['invalid-input-response']);
+        }
+
         $secretKey = $settings->getSecretKey();
         if ($secretKey === '') {
             Craft::warning('Turnstile verification skipped because the secret key is missing.', __METHOD__);
@@ -56,26 +61,30 @@ final class TurnstileService extends \craft\base\Component
             ]);
         } catch (GuzzleException $exception) {
             Craft::error(
-                'Turnstile verification request failed: ' . $exception->getMessage(),
+                'Turnstile verification request failed (connection-failed): ' . $exception->getMessage(),
                 __METHOD__,
             );
             return $this->result(false, ['connection-failed']);
         }
 
         $data = json_decode((string)$response->getBody(), true);
-        if (json_last_error() !== JSON_ERROR_NONE || !is_array($data)) {
-            Craft::error('Turnstile verification returned an invalid response.', __METHOD__);
+        $errorCodes = is_array($data) ? ($data['error-codes'] ?? []) : null;
+        if (
+            json_last_error() !== JSON_ERROR_NONE ||
+            !is_array($data) ||
+            !is_array($errorCodes) ||
+            array_filter(
+                $errorCodes,
+                static fn(mixed $errorCode): bool => !is_string($errorCode),
+            ) !== []
+        ) {
+            Craft::error('Turnstile verification returned an invalid response (invalid-response).', __METHOD__);
             return $this->result(false, ['invalid-response']);
         }
 
-        $errorCodes = $data['error-codes'] ?? [];
-        if (!is_array($errorCodes)) {
-            $errorCodes = [];
-        }
-
         return $this->result(
-            (bool)($data['success'] ?? false),
-            array_map('strval', array_values($errorCodes)),
+            ($data['success'] ?? null) === true,
+            array_values($errorCodes),
         );
     }
 

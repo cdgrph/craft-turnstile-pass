@@ -42,8 +42,13 @@ final class TurnstilePassVariable
         }
 
         $class = 'cf-turnstile';
-        if (isset($options['class']) && $options['class'] !== '') {
-            $class .= ' ' . $options['class'];
+        if (isset($options['class'])) {
+            $optionClass = is_array($options['class'])
+                ? implode(' ', $options['class'])
+                : $options['class'];
+            if ($optionClass !== '') {
+                $class .= ' ' . $optionClass;
+            }
         }
         unset($options['class']);
 

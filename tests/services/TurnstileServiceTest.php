@@ -70,6 +70,19 @@ final class TurnstileServiceTest extends TestCase
         ], $this->service->verify('the-token'));
     }
 
+    public function testVerifyRejectsOversizedToken(): void
+    {
+        $this->enableWithSecretKey();
+        $this->service->setClient(new Client([
+            'handler' => HandlerStack::create(new MockHandler()),
+        ]));
+
+        self::assertSame([
+            'success' => false,
+            'error_codes' => ['invalid-input-response'],
+        ], $this->service->verify(str_repeat('a', 2049)));
+    }
+
     public function testVerifySucceedsOnCloudflareSuccess(): void
     {
         $this->enableWithSecretKey();
@@ -93,6 +106,32 @@ final class TurnstileServiceTest extends TestCase
         self::assertSame([
             'success' => false,
             'error_codes' => ['invalid-input-response'],
+        ], $this->service->verify('the-token'));
+    }
+
+    public function testVerifyFailsOnNonBooleanSuccessValue(): void
+    {
+        $this->enableWithSecretKey();
+        $this->setMockResponses([
+            new Response(200, [], '{"success":"false","error-codes":[]}'),
+        ]);
+
+        self::assertSame([
+            'success' => false,
+            'error_codes' => [],
+        ], $this->service->verify('the-token'));
+    }
+
+    public function testVerifyFailsOnNonStringErrorCodes(): void
+    {
+        $this->enableWithSecretKey();
+        $this->setMockResponses([
+            new Response(200, [], '{"success":false,"error-codes":[{}]}'),
+        ]);
+
+        self::assertSame([
+            'success' => false,
+            'error_codes' => ['invalid-response'],
         ], $this->service->verify('the-token'));
     }
 

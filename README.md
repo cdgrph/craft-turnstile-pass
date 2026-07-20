@@ -47,10 +47,10 @@ Render the Turnstile script and widget inside your form:
 Pass widget options as an object:
 
 ```twig
-{{ craft.turnstilePass.widget({ theme: 'dark', action: 'contact' }) }}
+{{ craft.turnstilePass.widget({ theme: 'dark', size: 'compact' }) }}
 ```
 
-Widget option keys are converted to `data-*` attributes, so `theme` becomes `data-theme` and `action` becomes `data-action`. Keys that already start with `data-` are preserved. The `class` option is added to the widget's default `cf-turnstile` class.
+Widget option keys are converted to `data-*` attributes, so `theme` becomes `data-theme` and `size` becomes `data-size`. Keys that already start with `data-` are preserved. The `class` option is added to the widget's default `cf-turnstile` class.
 
 ## Contact Form integration
 
@@ -65,7 +65,11 @@ When `craftcms/contact-form` is installed, Turnstile Pass automatically verifies
 For any custom form POST, read the token from the `cf-turnstile-response` body parameter and verify it in your module or controller:
 
 ```php
-$token = (string)\Craft::$app->getRequest()->getBodyParam('cf-turnstile-response', '');
+$token = \Craft::$app->getRequest()->getBodyParam('cf-turnstile-response');
+
+if (!is_string($token) || $token === '') {
+    throw new \yii\web\BadRequestHttpException('Turnstile verification failed.');
+}
 
 $result = \cdgrph\craftturnstilepass\Plugin::getInstance()
     ->turnstile
