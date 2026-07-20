@@ -68,24 +68,28 @@ final class Plugin extends \craft\base\Plugin
                     return;
                 }
 
-                $token = Craft::$app->getRequest()->getBodyParam('cf-turnstile-response');
-
-                if (empty($token)) {
+                // Contact Form short-circuits spam to a silent success, so the
+                // submission error is informational only (kept in case a future
+                // Contact Form version surfaces errors for spam submissions).
+                $reject = static function(SendEvent $event): void {
                     $event->isSpam = true;
                     $event->submission->addError(
                         'turnstile',
                         Craft::t('turnstile-pass', 'Verification failed. Please try again.'),
                     );
+                };
+
+                $token = Craft::$app->getRequest()->getBodyParam('cf-turnstile-response');
+
+                // Reject non-string values (e.g. cf-turnstile-response[]=x)
+                // instead of letting verify(string) raise a TypeError.
+                if (!is_string($token) || $token === '') {
+                    $reject($event);
                     return;
                 }
 
-                $result = $this->turnstile->verify($token);
-                if (!$result['success']) {
-                    $event->isSpam = true;
-                    $event->submission->addError(
-                        'turnstile',
-                        Craft::t('turnstile-pass', 'Verification failed. Please try again.'),
-                    );
+                if (!$this->turnstile->verify($token)['success']) {
+                    $reject($event);
                 }
             },
         );

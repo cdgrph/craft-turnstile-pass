@@ -20,24 +20,21 @@ final class TurnstileService extends \craft\base\Component
         $this->client = $client;
     }
 
+    /**
+     * @return array{success: bool, error_codes: list<string>}
+     */
     public function verify(string $token): array
     {
         $settings = Plugin::getInstance()->getSettings();
 
         if (!$settings->enabled) {
-            return [
-                'success' => true,
-                'error_codes' => [],
-            ];
+            return $this->result(true);
         }
 
         $secretKey = $settings->getSecretKey();
         if ($secretKey === '') {
             Craft::warning('Turnstile verification skipped because the secret key is missing.', __METHOD__);
-            return [
-                'success' => false,
-                'error_codes' => ['missing-secret-key'],
-            ];
+            return $this->result(false, ['missing-secret-key']);
         }
 
         $formParams = [
@@ -62,19 +59,13 @@ final class TurnstileService extends \craft\base\Component
                 'Turnstile verification request failed: ' . $exception->getMessage(),
                 __METHOD__,
             );
-            return [
-                'success' => false,
-                'error_codes' => ['connection-failed'],
-            ];
+            return $this->result(false, ['connection-failed']);
         }
 
         $data = json_decode((string)$response->getBody(), true);
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($data)) {
             Craft::error('Turnstile verification returned an invalid response.', __METHOD__);
-            return [
-                'success' => false,
-                'error_codes' => ['invalid-response'],
-            ];
+            return $this->result(false, ['invalid-response']);
         }
 
         $errorCodes = $data['error-codes'] ?? [];
@@ -82,9 +73,21 @@ final class TurnstileService extends \craft\base\Component
             $errorCodes = [];
         }
 
+        return $this->result(
+            (bool)($data['success'] ?? false),
+            array_map('strval', array_values($errorCodes)),
+        );
+    }
+
+    /**
+     * @param list<string> $errorCodes
+     * @return array{success: bool, error_codes: list<string>}
+     */
+    private function result(bool $success, array $errorCodes = []): array
+    {
         return [
-            'success' => (bool)($data['success'] ?? false),
-            'error_codes' => array_map('strval', array_values($errorCodes)),
+            'success' => $success,
+            'error_codes' => $errorCodes,
         ];
     }
 

@@ -123,6 +123,19 @@ final class TurnstileServiceTest extends TestCase
         ], $this->service->verify('the-token'));
     }
 
+    public function testVerifyFailsOnEmptyJsonArrayBody(): void
+    {
+        $this->enableWithSecretKey();
+        $this->setMockResponses([
+            new Response(200, [], '[]'),
+        ]);
+
+        self::assertSame([
+            'success' => false,
+            'error_codes' => [],
+        ], $this->service->verify('the-token'));
+    }
+
     public function testVerifySendsSecretAndTokenAsFormParams(): void
     {
         $this->enableWithSecretKey('configured-secret');
@@ -140,6 +153,7 @@ final class TurnstileServiceTest extends TestCase
         parse_str((string)$history[0]['request']->getBody(), $formParams);
         self::assertSame('configured-secret', $formParams['secret'] ?? null);
         self::assertSame('the-token', $formParams['response'] ?? null);
+        self::assertArrayNotHasKey('remoteip', $formParams);
     }
 
     private function bootApp(): void
