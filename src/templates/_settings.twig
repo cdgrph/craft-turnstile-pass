@@ -1,0 +1,42 @@
+{% import '_includes/forms.twig' as forms %}
+
+{{ forms.lightswitchField({
+    label: 'Enable Turnstile'|t('turnstile-pass'),
+    instructions: 'Automatically verify Contact Form submissions with Cloudflare Turnstile before they are sent.'|t('turnstile-pass'),
+    id: 'enabled',
+    name: 'enabled',
+    on: settings.enabled,
+    errors: settings.getErrors('enabled'),
+}) }}
+
+{{ forms.autosuggestField({
+    label: 'Site Key'|t('turnstile-pass'),
+    instructions: 'Create a Turnstile widget in the [Cloudflare dashboard]({url}), then enter its site key.'|t('turnstile-pass', {
+        url: 'https://dash.cloudflare.com/?to=/:account/turnstile',
+    }),
+    id: 'siteKey',
+    name: 'siteKey',
+    value: settings.siteKey,
+    suggestEnvVars: true,
+    required: true,
+    errors: settings.getErrors('siteKey'),
+}) }}
+
+{{ forms.autosuggestField({
+    label: 'Secret Key'|t('turnstile-pass'),
+    instructions: 'Enter the secret key for your Turnstile widget.'|t('turnstile-pass'),
+    id: 'secretKey',
+    name: 'secretKey',
+    value: settings.secretKey,
+    suggestEnvVars: true,
+    required: true,
+    errors: settings.getErrors('secretKey'),
+}) }}
+
+<div class="readable">
+    <h2>{{ 'Usage'|t('turnstile-pass') }}</h2>
+    <p>{{ 'Render the Turnstile API script and widget in your form template:'|t('turnstile-pass') }}</p>
+    <pre><code>{{ '{{ craft.turnstilePass.script() }}' }}</code></pre>
+    <pre><code>{{ '{{ craft.turnstilePass.widget() }}' }}</code></pre>
+    <p>{{ 'You can also configure the plugin with config/turnstile-pass.php.'|t('turnstile-pass') }}</p>
+</div>

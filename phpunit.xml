@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" bootstrap="tests/bootstrap.php" colors="true" cacheDirectory=".phpunit.cache">
+    <testsuites>
+        <testsuite name="models"><directory>tests/models</directory></testsuite>
+        <testsuite name="services"><directory>tests/services</directory></testsuite>
+        <testsuite name="functional"><directory>tests/functional</directory></testsuite>
+    </testsuites>
+</phpunit>

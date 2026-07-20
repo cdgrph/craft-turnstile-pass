@@ -1,0 +1,37 @@
+{
+    "name": "cdgrph/craft-turnstile-pass",
+    "description": "Cloudflare Turnstile for Craft CMS — frictionless spam protection with automatic Contact Form integration.",
+    "type": "craft-plugin",
+    "license": "proprietary",
+    "homepage": "https://github.com/cdgrph/craft-turnstile-pass",
+    "keywords": ["craft", "cms", "craftcms", "craft-plugin", "turnstile", "cloudflare", "spam", "captcha", "contact-form"],
+    "authors": [
+        { "name": "Codegraph", "homepage": "https://cdgrph.com" }
+    ],
+    "support": {
+        "email": "hello@cdgrph.com",
+        "issues": "https://github.com/cdgrph/craft-turnstile-pass/issues",
+        "source": "https://github.com/cdgrph/craft-turnstile-pass",
+        "docs": "https://github.com/cdgrph/craft-turnstile-pass/blob/main/README.md"
+    },
+    "require": {
+        "php": "^8.2",
+        "craftcms/cms": "^5.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5",
+        "craftcms/contact-form": "^3.1"
+    },
+    "autoload": { "psr-4": { "cdgrph\\craftturnstilepass\\": "src/" } },
+    "autoload-dev": { "psr-4": { "cdgrph\\craftturnstilepass\\tests\\": "tests/" } },
+    "extra": {
+        "class": "cdgrph\\craftturnstilepass\\Plugin",
+        "handle": "turnstile-pass",
+        "name": "Turnstile Pass",
+        "developer": "Codegraph",
+        "developerUrl": "https://cdgrph.com",
+        "documentationUrl": "https://github.com/cdgrph/craft-turnstile-pass/blob/main/README.md",
+        "changelogUrl": "https://raw.githubusercontent.com/cdgrph/craft-turnstile-pass/main/CHANGELOG.md"
+    },
+    "config": { "allow-plugins": { "yiisoft/yii2-composer": true, "craftcms/plugin-installer": true } }
+}
