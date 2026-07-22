@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## 1.0.1 - 2026-07-22
+
+### Added
+- Quick-start guide with Cloudflare Turnstile key acquisition steps in the README.
+
+### Changed
+- Replaced generic composer.json keywords with search-relevant terms to improve Plugin Store discoverability.
+
 ## 1.0.0 - 2026-07-21
 
 ### Added
