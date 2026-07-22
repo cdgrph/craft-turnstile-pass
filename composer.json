@@ -4,7 +4,7 @@
     "type": "craft-plugin",
     "license": "proprietary",
     "homepage": "https://github.com/cdgrph/craft-turnstile-pass",
-    "keywords": ["craft", "cms", "craftcms", "craft-plugin", "turnstile", "cloudflare", "spam", "captcha", "contact-form"],
+    "keywords": ["turnstile", "cloudflare", "spam", "anti-spam", "captcha", "bot-protection", "security", "form", "contact-form"],
     "authors": [
         { "name": "Codegraph", "homepage": "https://cdgrph.com" }
     ],

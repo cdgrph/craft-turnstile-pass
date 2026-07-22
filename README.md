@@ -13,10 +13,20 @@ Turnstile Pass integrates Cloudflare Turnstile with Craft CMS for frictionless s
 
 ## Quick start
 
+### 1. Get your Turnstile keys
+
+1. Log in to the [Cloudflare dashboard](https://dash.cloudflare.com/) and navigate to **Turnstile**.
+2. Click **Add widget**, enter a widget name, add your hostname, and choose a widget mode (Invisible is recommended for standard contact forms).
+3. Copy the **Site Key** and **Secret Key** shown after creation.
+
+### 2. Install the plugin
+
 ```bash
 composer require cdgrph/craft-turnstile-pass
 php craft plugin/install turnstile-pass
 ```
+
+### 3. Configure
 
 In the control panel, go to **Settings > Plugins > Turnstile Pass**, enable the plugin, and enter your Site Key and Secret Key. Both fields accept environment variable references such as `$TURNSTILE_SITE_KEY`.
 
