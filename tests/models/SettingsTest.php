@@ -13,6 +13,7 @@ final class SettingsTest extends TestCase
         $settings = new Settings();
 
         self::assertFalse($settings->enabled);
+        self::assertFalse($settings->allowFormSkip);
         self::assertSame('', $settings->siteKey);
         self::assertSame('', $settings->secretKey);
     }

@@ -73,6 +73,14 @@ final class Plugin extends \craft\base\Plugin
                     return;
                 }
 
+                // Honor per-form skips only behind the opt-in; the default still verifies every submission.
+                if ($this->getSettings()->allowFormSkip) {
+                    $skip = $request->getBodyParam('skipTurnstile');
+                    if (is_string($skip) && filter_var($skip, FILTER_VALIDATE_BOOLEAN)) {
+                        return;
+                    }
+                }
+
                 // Contact Form short-circuits spam to a silent success, so the
                 // submission error is informational only (kept in case a future
                 // Contact Form version surfaces errors for spam submissions).

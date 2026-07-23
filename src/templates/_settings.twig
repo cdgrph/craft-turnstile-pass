@@ -9,6 +9,15 @@
     errors: settings.getErrors('enabled'),
 }) }}
 
+{{ forms.lightswitchField({
+    label: 'Allow Per-Form Skip'|t('turnstile-pass'),
+    instructions: 'Let templates skip verification for individual forms by submitting a `skipTurnstile` hidden field. Any client can send this field while this is on, so leave it off unless you need it.'|t('turnstile-pass'),
+    id: 'allowFormSkip',
+    name: 'allowFormSkip',
+    on: settings.allowFormSkip,
+    errors: settings.getErrors('allowFormSkip'),
+}) }}
+
 {{ forms.autosuggestField({
     label: 'Site Key'|t('turnstile-pass'),
     instructions: 'Create a Turnstile widget in the [Cloudflare dashboard]({url}), then enter its site key.'|t('turnstile-pass', {

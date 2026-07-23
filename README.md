@@ -36,6 +36,7 @@ Alternatively, create `config/turnstile-pass.php`:
 <?php
 return [
     'enabled' => true,
+    'allowFormSkip' => false,
     'siteKey' => '$TURNSTILE_SITE_KEY',
     'secretKey' => '$TURNSTILE_SECRET_KEY',
 ];
@@ -63,6 +64,18 @@ Pass widget options as an object:
 ```
 
 Widget option keys are converted to `data-*` attributes, so `theme` becomes `data-theme` and `size` becomes `data-size`. Keys that already start with `data-` are preserved. The `class` option is added to the widget's default `cf-turnstile` class.
+
+### Skipping verification for specific forms
+
+Enable **Allow Per-Form Skip** in the plugin settings, or set `allowFormSkip` to `true` in `config/turnstile-pass.php`. Then add this hidden field to any Contact Form template that should skip verification:
+
+```twig
+{{ hiddenInput('skipTurnstile', 'true') }}
+```
+
+The value can be any truthy string such as `true` or `1`.
+
+While this setting is on, any client can submit this field and bypass verification on any form — the plugin cannot tell which form a submission came from. Enable it only on sites that need per-form skipping.
 
 ## Contact Form integration
 
