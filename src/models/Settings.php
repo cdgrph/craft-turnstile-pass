@@ -8,6 +8,7 @@ use craft\helpers\App;
 final class Settings extends \craft\base\Model
 {
     public bool $enabled = false;
+    public bool $allowFormSkip = false;
     public string $siteKey = '';
     public string $secretKey = '';
 
@@ -25,7 +26,7 @@ final class Settings extends \craft\base\Model
     {
         return [
             [['siteKey', 'secretKey'], 'string'],
-            [['enabled'], 'boolean'],
+            [['enabled', 'allowFormSkip'], 'boolean'],
         ];
     }
 }

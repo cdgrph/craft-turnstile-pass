@@ -53,6 +53,92 @@ final class ContactFormHookTest extends TestCase
         self::assertTrue($submission->hasErrors('turnstile'));
     }
 
+    public function testSkipParamBypassesVerificationWhenAllowed(): void
+    {
+        $this->enablePlugin();
+        $this->plugin->getSettings()->allowFormSkip = true;
+        $this->setRequestBodyParams([
+            'skipTurnstile' => 'true',
+        ]);
+        [$submission, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertFalse($event->isSpam);
+        self::assertSame([], $submission->getErrors());
+    }
+
+    public function testTruthyVariantSkipValueBypassesVerificationWhenAllowed(): void
+    {
+        $this->enablePlugin();
+        $this->plugin->getSettings()->allowFormSkip = true;
+        $this->setRequestBodyParams([
+            'skipTurnstile' => '1',
+        ]);
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertFalse($event->isSpam);
+    }
+
+    public function testSkipParamCoexistsWithMessageBody(): void
+    {
+        $this->enablePlugin();
+        $this->plugin->getSettings()->allowFormSkip = true;
+        $this->setRequestBodyParams([
+            'skipTurnstile' => 'true',
+            'message' => 'Hello world',
+        ]);
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertFalse($event->isSpam);
+    }
+
+    public function testSkipParamIsIgnoredWhenNotAllowed(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams([
+            'skipTurnstile' => 'true',
+        ]);
+        [$submission, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertTrue($event->isSpam);
+        self::assertTrue($submission->hasErrors('turnstile'));
+    }
+
+    public function testFalseSkipValueDoesNotBypassVerification(): void
+    {
+        $this->enablePlugin();
+        $this->plugin->getSettings()->allowFormSkip = true;
+        $this->setRequestBodyParams([
+            'skipTurnstile' => 'false',
+        ]);
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertTrue($event->isSpam);
+    }
+
+    public function testNonStringSkipValueDoesNotBypassVerification(): void
+    {
+        $this->enablePlugin();
+        $this->plugin->getSettings()->allowFormSkip = true;
+        $this->setRequestBodyParams([
+            'skipTurnstile' => ['true'],
+        ]);
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertTrue($event->isSpam);
+    }
+
     public function testFailedVerificationMarksSubmissionAsSpam(): void
     {
         $this->enablePlugin();
