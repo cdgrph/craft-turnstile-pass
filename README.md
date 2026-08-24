@@ -97,21 +97,28 @@ Client-side failures are reported through `error-callback`; see Cloudflare's [cl
 <script>
 window.onTurnstileError = function (code) {
     const errorCode = String(code);
+    const retryable = errorCode.startsWith('600') || errorCode.startsWith('300');
+    const message = document.getElementById('turnstile-error');
 
-    if (errorCode.startsWith('600') || errorCode.startsWith('300')) {
-        const message = document.getElementById('turnstile-error');
-        if (message) {
-            message.textContent = 'Verification failed. Retrying automatically.';
-        }
-        return true;
+    if (message) {
+        message.textContent = retryable
+            ? 'Verification failed. Retrying automatically.'
+            : 'Verification is unavailable. Reload the page or contact the site owner.';
     }
 
-    return false;
+    return retryable;
+};
+
+window.onTurnstileSuccess = function () {
+    const message = document.getElementById('turnstile-error');
+    if (message) {
+        message.textContent = '';
+    }
 };
 </script>
 
 <form method="post">
-    {{ craft.turnstilePass.widget({ 'error-callback': 'onTurnstileError' }) }}
+    {{ craft.turnstilePass.widget({ 'callback': 'onTurnstileSuccess', 'error-callback': 'onTurnstileError' }) }}
 
     {# Your form fields and submit button #}
 </form>
