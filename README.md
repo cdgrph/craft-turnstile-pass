@@ -127,11 +127,13 @@ window.onTurnstileSuccess = function () {
 
 With implicit rendering, specify the callback's global function name as a string, not a function value. As described under Usage, `error-callback` becomes `data-error-callback`, and the function must be reachable from `window` when the widget runs.
 
-A non-falsy callback return value marks the failure as handled, prevents additional error handling, and avoids an uncaught exception. Returning `false` lets a possible configuration problem surface.
+If no error callback is configured, Turnstile throws a JavaScript exception. If a callback is configured, a falsy return value (including `undefined`) causes Turnstile to log a warning containing the error code to the JavaScript console, while a non-falsy return value suppresses additional error logging. A configuration problem reaches your own monitoring only if the callback reports it itself.
+
+The example defines its callbacks in an inline script. A Content Security Policy that blocks inline scripts prevents that block from running, leaves the callback undefined, and makes Turnstile behave as though no callback were configured, resulting in the exception described above; move the callbacks to an external file or add a nonce as described in the Content Security Policy section. The example also uses a fixed element ID and fixed global function names, so pages with multiple protected forms must assign a unique ID and function name to each form or every widget writes to the first matching element.
 
 Turnstile retries automatically. The default `retry` value is `auto`, and the default `retry-interval` is 8000 ms, so transient failures retry without visitor action; see the [widget configuration reference](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/widget-configurations/).
 
-Cloudflare's [error code reference](https://developers.cloudflare.com/turnstile/troubleshooting/client-side-errors/error-codes/) marks retryability in its Retry column. The codes marked retryable are `300*`, `600*`, `110600`, `110620`, and `200500`; every other listed code is not retryable. Codes `110100`, `110110`, `110200`, `400020`, and `400070` are configuration problems, so the `110` family is not uniformly non-retryable. Do not report every code as handled, because doing so hides a persistent configuration problem.
+Cloudflare's [error code reference](https://developers.cloudflare.com/turnstile/troubleshooting/client-side-errors/error-codes/) marks retryability in its Retry column. The retryable codes are `300*`, `600*`, `110600`, `110620`, and `200500`; every other listed code is not retryable. The `110` family is therefore mixed: `110600` and `110620` are retryable, while `110100`, `110110`, and `110200` are configuration problems, as are `400020` and `400070`. Reporting every code as handled removes the console warning that can help you notice a persistent configuration problem.
 
 Invisible mode displays no widget, checkbox, or loading indicator, so an error otherwise leaves nothing visible on the page. Sites using Invisible mode must render their own visitor-facing message from the callback.
 
