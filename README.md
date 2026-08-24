@@ -97,7 +97,8 @@ Client-side failures are reported through `error-callback`; see Cloudflare's [cl
 <script>
 window.onTurnstileError = function (code) {
     const errorCode = String(code);
-    const retryable = errorCode.startsWith('600') || errorCode.startsWith('300');
+    const retryable = errorCode.startsWith('600') || errorCode.startsWith('300')
+        || errorCode === '110600' || errorCode === '110620';
     const message = document.getElementById('turnstile-error');
 
     if (message) {
