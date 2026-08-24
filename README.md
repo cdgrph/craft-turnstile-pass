@@ -98,7 +98,7 @@ Client-side failures are reported through `error-callback`; see Cloudflare's [cl
 window.onTurnstileError = function (code) {
     const errorCode = String(code);
     const retryable = errorCode.startsWith('600') || errorCode.startsWith('300')
-        || errorCode === '110600' || errorCode === '110620';
+        || errorCode === '110600' || errorCode === '110620' || errorCode === '200500';
     const message = document.getElementById('turnstile-error');
 
     if (message) {
@@ -131,7 +131,7 @@ A non-falsy callback return value marks the failure as handled, prevents additio
 
 Turnstile retries automatically. The default `retry` value is `auto`, and the default `retry-interval` is 8000 ms, so transient failures retry without visitor action; see the [widget configuration reference](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/widget-configurations/).
 
-Cloudflare's [error code reference](https://developers.cloudflare.com/turnstile/troubleshooting/client-side-errors/error-codes/) identifies retryability in its Retry column. Codes starting with `600` or `300` are generic challenge failures and are retryable. Codes `110100`, `110110`, `110200`, `400020`, and `400070` are configuration problems and are not retryable. The `110` family is not uniformly non-retryable: `110600` and `110620` are retryable. Do not swallow every code, because that can hide a persistent configuration problem; handle only codes that the reference marks as retryable.
+Cloudflare's [error code reference](https://developers.cloudflare.com/turnstile/troubleshooting/client-side-errors/error-codes/) marks retryability in its Retry column. The codes marked retryable are `300*`, `600*`, `110600`, `110620`, and `200500`; every other listed code is not retryable. Codes `110100`, `110110`, `110200`, `400020`, and `400070` are configuration problems, so the `110` family is not uniformly non-retryable. Do not report every code as handled, because doing so hides a persistent configuration problem.
 
 Invisible mode displays no widget, checkbox, or loading indicator, so an error otherwise leaves nothing visible on the page. Sites using Invisible mode must render their own visitor-facing message from the callback.
 
