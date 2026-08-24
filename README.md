@@ -87,6 +87,46 @@ When `craftcms/contact-form` is installed, Turnstile Pass automatically verifies
 
 **Availability:** Verification fails closed. If the Cloudflare siteverify API is unreachable, submissions are blocked as spam — the Contact Form plugin still shows visitors a success response, so the drop is silent from their perspective. Each failed verification attempt is recorded in Craft's logs (`connection-failed`), so monitor your logs if you suspect an outage.
 
+## Error handling
+
+Client-side failures are reported through `error-callback`; see Cloudflare's [client-side errors guide](https://developers.cloudflare.com/turnstile/troubleshooting/client-side-errors/). If no callback is configured, a challenge failure throws a JavaScript exception that appears as an uncaught error in global error handlers and error-monitoring tools.
+
+```twig
+{# Define the callback before the Turnstile script runs the widget. #}
+<div id="turnstile-error" role="alert"></div>
+<script>
+window.onTurnstileError = function (code) {
+    const errorCode = String(code);
+
+    if (errorCode.startsWith('600') || errorCode.startsWith('300')) {
+        const message = document.getElementById('turnstile-error');
+        if (message) {
+            message.textContent = 'Verification failed. Retrying automatically.';
+        }
+        return true;
+    }
+
+    return false;
+};
+</script>
+
+<form method="post">
+    {{ craft.turnstilePass.widget({ 'error-callback': 'onTurnstileError' }) }}
+
+    {# Your form fields and submit button #}
+</form>
+```
+
+With implicit rendering, specify the callback's global function name as a string, not a function value. As described under Usage, `error-callback` becomes `data-error-callback`, and the function must be reachable from `window` when the widget runs.
+
+A non-falsy callback return value marks the failure as handled, prevents additional error handling, and avoids an uncaught exception. Returning `false` lets a possible configuration problem surface.
+
+Turnstile retries automatically. The default `retry` value is `auto`, and the default `retry-interval` is 8000 ms, so transient failures retry without visitor action; see the [widget configuration reference](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/widget-configurations/).
+
+Cloudflare's [error code reference](https://developers.cloudflare.com/turnstile/troubleshooting/client-side-errors/error-codes/) identifies retryability in its Retry column. Codes starting with `600` or `300` are generic challenge failures and are retryable. Codes `110100`, `110110`, `110200`, `400020`, and `400070` are configuration problems and are not retryable. The `110` family is not uniformly non-retryable: `110600` and `110620` are retryable. Do not swallow every code, because that can hide a persistent configuration problem; handle only codes that the reference marks as retryable.
+
+Invisible mode displays no widget, checkbox, or loading indicator, so an error otherwise leaves nothing visible on the page. Sites using Invisible mode must render their own visitor-facing message from the callback.
+
 ## Content Security Policy
 
 Turnstile requires `https://challenges.cloudflare.com` to be allowed by both the `script-src` and `frame-src` directives in your Content Security Policy. Without both directives, the script or its iframe can be blocked and token generation can fail. See Cloudflare's [Turnstile Content Security Policy reference](https://developers.cloudflare.com/turnstile/reference/content-security-policy/).
@@ -137,6 +177,7 @@ Cloudflare provides the following official dummy keys for automated and local te
 | Site key — always blocks (visible) | `2x00000000000000000000AB` |
 | Site key — always passes (invisible) | `1x00000000000000000000BB` |
 | Site key — always blocks (invisible) | `2x00000000000000000000BB` |
+| Site key — forces an interactive challenge | `3x00000000000000000000FF` |
 | Secret key — always passes | `1x0000000000000000000000000000000AA` |
 | Secret key — always fails | `2x0000000000000000000000000000000AA` |
 
