@@ -13,19 +13,48 @@ final class Settings extends \craft\base\Model
     public string $secretKey = '';
 
     /**
-     * Trimmed, because a key is tested for presence and then sent verbatim to
-     * Cloudflare and rendered into the widget. Treating a padded key as present
-     * while using the padded value would fail every verification with no
-     * configuration error to explain it.
+     * The characters stripped from both ends of a key.
+     *
+     * Turnstile keys are ASCII, so nothing legitimate is lost by removing the
+     * invisible characters a key picks up on its way through a clipboard, an
+     * editor or a spreadsheet: non-breaking and other Unicode spaces, the
+     * zero-width joiners, and a byte order mark. They are listed rather than
+     * left to \s, whose Unicode coverage differs between the PCRE versions
+     * shipped across the supported PHP releases.
      */
+    private const KEY_PADDING = '\s\x{00A0}\x{1680}\x{2000}-\x{200D}\x{2028}\x{2029}\x{202F}\x{205F}\x{2060}\x{3000}\x{FEFF}';
+
+    /**
+     * Removes that padding from both ends of a key.
+     *
+     * A key is tested for presence and then sent verbatim to Cloudflare and
+     * rendered into the widget. Treating a padded key as present while using
+     * the padded value would fail every verification with no configuration
+     * error to explain it. trim() removes a fixed set of ASCII bytes, so it
+     * leaves that gap open for exactly the characters that arrive by paste.
+     *
+     * Every presence test and every diagnostic reads a key through here, so
+     * isOperational(), missingKeyNames(), the configuration error and the
+     * control panel warning all agree on what counts as empty.
+     */
+    private static function trimKey(string $key): string
+    {
+        $pattern = '/^[' . self::KEY_PADDING . ']+|[' . self::KEY_PADDING . ']+$/u';
+
+        // A subject that is not valid UTF-8 makes the /u pattern fail and
+        // return null; fall back to ASCII trimming rather than to the raw
+        // value, so the result is never less trimmed than it used to be.
+        return preg_replace($pattern, '', $key) ?? trim($key);
+    }
+
     public function getSiteKey(): string
     {
-        return trim((string)App::parseEnv($this->siteKey));
+        return self::trimKey((string)App::parseEnv($this->siteKey));
     }
 
     public function getSecretKey(): string
     {
-        return trim((string)App::parseEnv($this->secretKey));
+        return self::trimKey((string)App::parseEnv($this->secretKey));
     }
 
     public function hasSiteKey(): bool
