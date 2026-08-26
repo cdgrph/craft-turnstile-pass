@@ -228,6 +228,15 @@ final class TurnstileServiceTest extends TestCase
         ]));
     }
 
+    public function testPaddedSecretKeyIsSentWithoutPadding(): void
+    {
+        $settings = Plugin::getInstance()->getSettings();
+        $settings->enabled = true;
+        $settings->secretKey = "  configured-secret\n";
+
+        self::assertSame('configured-secret', $settings->getSecretKey());
+    }
+
     public function testWhitespaceOnlySecretKeyIsTreatedAsMissing(): void
     {
         $settings = Plugin::getInstance()->getSettings();

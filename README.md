@@ -30,7 +30,7 @@ php craft plugin/install turnstile-pass
 
 In the control panel, go to **Settings > Plugins > Turnstile Pass**, enable the plugin, and enter your Site Key and Secret Key. Both fields accept environment variable references such as `$TURNSTILE_SITE_KEY`.
 
-Both keys are required. When the plugin is enabled and either key is missing — for example because an environment variable is not defined on that environment — `script()` and `widget()` render nothing, the control panel settings screen shows a warning, and the plugin names the missing keys in a configuration error in Craft's logs. That error is written when a widget would have been rendered and when a Contact Form submission is verified. Repeats are suppressed for 15 minutes per missing-key combination; if Craft's cache cannot hold that window, the error is recorded for every affected request instead.
+Both keys are required. When the plugin is enabled and either key is missing — for example because an environment variable is not defined on that environment — `script()` and `widget()` render nothing, the control panel settings screen shows a warning, and the plugin names the missing keys in a configuration error in Craft's logs. That error is written when a widget would have been rendered and when a Contact Form submission is verified. Repeats are suppressed for 15 minutes per missing-key combination; if Craft's cache cannot hold that window, the error is recorded once per affected request instead.
 
 Alternatively, create `config/turnstile-pass.php`:
 
@@ -85,7 +85,7 @@ When `craftcms/contact-form` is installed, Turnstile Pass automatically verifies
 
 **Important:** If Turnstile Pass is enabled but the widget is missing from the form, every submission will be blocked as spam because no Turnstile token is present.
 
-**Incomplete configuration:** If the plugin is enabled while a key is missing, verification is not skipped — submissions still fail closed. The plugin records a configuration error in Craft's logs naming the missing keys, so the cause is distinguishable from Contact Form's own spam warning. Rate limiting uses Craft's cache. A cache that is missing, unusable, or unreachable records the error for every affected request rather than staying silent. Reaching that state takes two faults at once — an incomplete configuration and a broken cache — and the log volume is the signal that both need attention.
+**Incomplete configuration:** If the plugin is enabled while a key is missing, verification is not skipped — submissions still fail closed. The plugin records a configuration error in Craft's logs naming the missing keys, so the cause is distinguishable from Contact Form's own spam warning. Rate limiting uses Craft's cache. A cache that is missing, unusable, or unreachable records the error once per affected request rather than staying silent. Reaching that state takes two faults at once — an incomplete configuration and a broken cache — and the log volume is the signal that both need attention.
 
 **Silent drops:** A CSP violation, ad blocker, network error, or unsupported browser can leave the token empty when the form is submitted. Turnstile Pass then treats the submission as spam and discards it, while the Contact Form plugin returns a success response to the visitor. Invisible mode has no widget, checkbox, loading indicator, or error UI, so this failure can be harder to notice.
 
@@ -181,7 +181,9 @@ Gate on `requiresVerification()`, not on `isOperational()`. The two answer diffe
 
 `isOperational()` reports configuration health, so it is the right check for rendering your own widget or for surfacing a warning. Using it to decide whether to verify would skip verification on an environment that is missing a key, which is the situation verification exists to cover.
 
-When `requiresVerification()` is true but `isOperational()` is false, the plugin names the missing keys in Craft's logs. A missing secret key makes `verify()` reject every submission. A missing site key stops `widget()` from rendering, so a form that relies on it submits no token and is rejected — but a form that renders its own widget can still verify, because `verify()` does not read the site key.
+When `requiresVerification()` is true but `isOperational()` is false, the plugin names the missing keys in Craft's logs and warns on its settings screen. A missing secret key makes `verify()` reject every submission. A missing site key stops `widget()` from rendering, so a form that relies on it submits no token and is rejected.
+
+Set both keys even if your template renders its own widget. `verify()` itself does not read the site key, so a hand-rolled widget can still verify without one, but the plugin has no way to tell that apart from a missing environment variable and keeps reporting it as a configuration error.
 
 `verify()` returns only a boolean `success` value and an `error_codes` array. The `verify()` method does not expose or validate the Siteverify response's `action` or `hostname` values. If you rely on `action` or accept submissions across multiple hostnames, call the Siteverify API directly instead of `verify()` and compare those values yourself — tokens are single-use, so a token cannot be verified a second time.
 

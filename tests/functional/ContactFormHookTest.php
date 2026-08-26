@@ -351,7 +351,7 @@ final class ContactFormHookTest extends TestCase
      * cache that already holds the key. Suppressing on that would silence the
      * report exactly when the site is already misconfigured.
      */
-    public function testBrokenCacheReportsEveryTime(): void
+    public function testBrokenCacheStillReports(): void
     {
         \Yii::$app->set('cache', new class extends ArrayCache {
             protected function addValue($key, $value, $duration): bool
@@ -370,10 +370,26 @@ final class ContactFormHookTest extends TestCase
 
         [, $first] = $this->createSendEvent();
         Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $first);
-        [, $second] = $this->createSendEvent();
-        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $second);
+        self::assertSame(1, $this->misconfigurationLogCount());
+    }
 
-        self::assertSame(2, $this->misconfigurationLogCount());
+    /**
+     * The plugin instance lives for one request, so a request that would report
+     * the same problem from several places reports it once. This says nothing
+     * about later requests, which the cache is responsible for.
+     */
+    public function testMisconfigurationIsReportedOncePerPluginInstance(): void
+    {
+        \Yii::$app->set('cache', null);
+        $this->enablePluginWithoutKeys();
+        $this->setRequestBodyParams([]);
+
+        foreach (range(1, 3) as $ignored) {
+            [, $event] = $this->createSendEvent();
+            Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+        }
+
+        self::assertSame(1, $this->misconfigurationLogCount());
     }
 
     public function testMissingCacheComponentStillReports(): void

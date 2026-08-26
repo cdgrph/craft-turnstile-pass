@@ -151,4 +151,15 @@ final class SettingsTest extends TestCase
         $settings->secretKey = 'configured-secret';
         self::assertSame([], $settings->missingKeyNames());
     }
+    public function testKeyGettersTrimSurroundingWhitespace(): void
+    {
+        $settings = new Settings();
+        $settings->enabled = true;
+        $settings->siteKey = "  configured-site\n";
+        $settings->secretKey = ' configured-secret ';
+
+        self::assertSame('configured-site', $settings->getSiteKey());
+        self::assertSame('configured-secret', $settings->getSecretKey());
+        self::assertTrue($settings->isOperational());
+    }
 }

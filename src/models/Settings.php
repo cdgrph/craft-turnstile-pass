@@ -12,24 +12,30 @@ final class Settings extends \craft\base\Model
     public string $siteKey = '';
     public string $secretKey = '';
 
+    /**
+     * Trimmed, because a key is tested for presence and then sent verbatim to
+     * Cloudflare and rendered into the widget. Treating a padded key as present
+     * while using the padded value would fail every verification with no
+     * configuration error to explain it.
+     */
     public function getSiteKey(): string
     {
-        return (string)App::parseEnv($this->siteKey);
+        return trim((string)App::parseEnv($this->siteKey));
     }
 
     public function getSecretKey(): string
     {
-        return (string)App::parseEnv($this->secretKey);
+        return trim((string)App::parseEnv($this->secretKey));
     }
 
     public function hasSiteKey(): bool
     {
-        return trim($this->getSiteKey()) !== '';
+        return $this->getSiteKey() !== '';
     }
 
     public function hasSecretKey(): bool
     {
-        return trim($this->getSecretKey()) !== '';
+        return $this->getSecretKey() !== '';
     }
 
     /**

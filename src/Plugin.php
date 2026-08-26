@@ -23,6 +23,12 @@ final class Plugin extends \craft\base\Plugin
     private const MISCONFIGURED_LOG_KEY = 'turnstile-pass:misconfigured:';
     private const MISCONFIGURED_LOG_TTL = 900;
 
+    /**
+     * Set once the report has been made without a usable cache. The plugin
+     * instance lives for one request, which is the only scope this can bound.
+     */
+    private bool $misconfigurationReported = false;
+
     public string $schemaVersion = '1.0.0';
     public bool $hasCpSettings = true;
 
@@ -196,13 +202,23 @@ final class Plugin extends \craft\base\Plugin
             $suppress = null;
         }
 
-        // Null means the cache could not hold the window. PHP keeps no state
-        // between requests, so there is nowhere else to count, and the report
-        // repeats for every affected request. That is deliberate: reaching this
-        // path takes two faults at once — an incomplete configuration and a
-        // broken cache — and such a site needs to be noticed, not kept quiet.
         if ($suppress === true) {
             return;
+        }
+
+        if ($suppress === null) {
+            // The cache could not hold the window, so the only scope left is
+            // this request. Reporting still happens — reaching this path takes
+            // an incomplete configuration and a broken cache at once, and such
+            // a site needs to be noticed — but the widget, the script tag, and
+            // the Contact Form hook report it between them once rather than
+            // three times. Later requests are not bounded: PHP keeps no
+            // userland state between them.
+            if ($this->misconfigurationReported) {
+                return;
+            }
+
+            $this->misconfigurationReported = true;
         }
 
         Craft::error(
