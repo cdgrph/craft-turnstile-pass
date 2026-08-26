@@ -227,6 +227,26 @@ final class SettingsTest extends TestCase
         self::assertSame(['site key'], $settings->missingKeyNames());
     }
 
+    public function testKeyGettersTrimAfterResolvingAnEnvironmentVariable(): void
+    {
+        putenv("TURNSTILE_TEST_PADDED_ENV=\u{00A0}resolved-site\u{00A0}");
+        putenv("TURNSTILE_TEST_BLANK_ENV=\u{3000}");
+
+        try {
+            $settings = new Settings();
+            $settings->enabled = true;
+            $settings->siteKey = '$TURNSTILE_TEST_PADDED_ENV';
+            $settings->secretKey = '$TURNSTILE_TEST_BLANK_ENV';
+
+            self::assertSame('resolved-site', $settings->getSiteKey());
+            self::assertFalse($settings->hasSecretKey());
+            self::assertSame(['secret key'], $settings->missingKeyNames());
+        } finally {
+            putenv('TURNSTILE_TEST_PADDED_ENV');
+            putenv('TURNSTILE_TEST_BLANK_ENV');
+        }
+    }
+
     public function testKeysThatAreNotValidUtf8FallBackToAsciiTrimming(): void
     {
         $settings = new Settings();

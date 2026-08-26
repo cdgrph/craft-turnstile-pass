@@ -28,29 +28,6 @@ final class Settings extends \craft\base\Model
      */
     private const KEY_PADDING = '\p{Cc}\x20\p{Z}\p{Cf}';
 
-    /**
-     * Removes that padding from both ends of a key.
-     *
-     * A key is tested for presence and then sent verbatim to Cloudflare and
-     * rendered into the widget. Treating a padded key as present while using
-     * the padded value would fail every verification with no configuration
-     * error to explain it. trim() removes a fixed set of ASCII bytes, so it
-     * leaves that gap open for the characters most likely to arrive by paste.
-     *
-     * Every presence test and every diagnostic reads a key through here, so
-     * isOperational(), missingKeyNames(), the configuration error and the
-     * control panel warning all agree on what counts as empty.
-     */
-    private static function trimKey(string $key): string
-    {
-        $pattern = '/^[' . self::KEY_PADDING . ']+|[' . self::KEY_PADDING . ']+$/u';
-
-        // A subject that is not valid UTF-8 makes the /u pattern fail and
-        // return null; fall back to ASCII trimming rather than to the raw
-        // value, so the result is never less trimmed than it used to be.
-        return preg_replace($pattern, '', $key) ?? trim($key);
-    }
-
     public function getSiteKey(): string
     {
         return self::trimKey((string)App::parseEnv($this->siteKey));
@@ -122,6 +99,29 @@ final class Settings extends \craft\base\Model
         }
 
         return $missing;
+    }
+
+    /**
+     * Removes that padding from both ends of a key.
+     *
+     * A key is tested for presence and then sent verbatim to Cloudflare and
+     * rendered into the widget. Treating a padded key as present while using
+     * the padded value would fail every verification with no configuration
+     * error to explain it. trim() removes a fixed set of ASCII bytes, so it
+     * leaves that gap open for the characters most likely to arrive by paste.
+     *
+     * Every presence test and every diagnostic reads a key through here, so
+     * isOperational(), missingKeyNames(), the configuration error and the
+     * control panel warning all agree on what counts as empty.
+     */
+    private static function trimKey(string $key): string
+    {
+        $pattern = '/^[' . self::KEY_PADDING . ']+|[' . self::KEY_PADDING . ']+$/u';
+
+        // A subject that is not valid UTF-8 makes the /u pattern fail and
+        // return null; fall back to ASCII trimming rather than to the raw
+        // value, so the result is never less trimmed than it used to be.
+        return preg_replace($pattern, '', $key) ?? trim($key);
     }
 
     protected function defineRules(): array
