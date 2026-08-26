@@ -181,7 +181,7 @@ Gate on `requiresVerification()`, not on `isOperational()`. The two answer diffe
 
 `isOperational()` reports configuration health, so it is the right check for rendering your own widget or for surfacing a warning. Using it to decide whether to verify would skip verification on an environment that is missing a key, which is the situation verification exists to cover.
 
-When `requiresVerification()` is true but `isOperational()` is false, `widget()` renders nothing, so no token is submitted and every submission is rejected. The plugin names the missing keys in Craft's logs when that happens.
+When `requiresVerification()` is true but `isOperational()` is false, the plugin names the missing keys in Craft's logs. A missing secret key makes `verify()` reject every submission. A missing site key stops `widget()` from rendering, so a form that relies on it submits no token and is rejected — but a form that renders its own widget can still verify, because `verify()` does not read the site key.
 
 `verify()` returns only a boolean `success` value and an `error_codes` array. The `verify()` method does not expose or validate the Siteverify response's `action` or `hostname` values. If you rely on `action` or accept submissions across multiple hostnames, call the Siteverify API directly instead of `verify()` and compare those values yourself — tokens are single-use, so a token cannot be verified a second time.
 

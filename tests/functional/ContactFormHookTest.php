@@ -346,6 +346,49 @@ final class ContactFormHookTest extends TestCase
         self::assertSame(2, $this->misconfigurationLogCount());
     }
 
+    /**
+     * A cache that cannot be written to returns false from add() just like a
+     * cache that already holds the key. Suppressing on that would silence the
+     * report exactly when the site is already misconfigured.
+     */
+    public function testBrokenCacheStillReportsEveryTime(): void
+    {
+        \Yii::$app->set('cache', new class extends ArrayCache {
+            protected function addValue($key, $value, $duration): bool
+            {
+                return false; // Write failure, not a duplicate key.
+            }
+
+            public function exists($key): bool
+            {
+                return false;
+            }
+        });
+
+        $this->enablePluginWithoutKeys();
+        $this->setRequestBodyParams([]);
+
+        [, $first] = $this->createSendEvent();
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $first);
+        [, $second] = $this->createSendEvent();
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $second);
+
+        self::assertSame(2, $this->misconfigurationLogCount());
+    }
+
+    public function testMissingCacheComponentStillReports(): void
+    {
+        \Yii::$app->set('cache', null);
+
+        $this->enablePluginWithoutKeys();
+        $this->setRequestBodyParams([]);
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertSame(1, $this->misconfigurationLogCount());
+    }
+
     private function bootApp(): void
     {
         // Craft's PhpMessageSource resolves @translations for site-level

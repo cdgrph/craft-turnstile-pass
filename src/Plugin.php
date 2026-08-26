@@ -172,7 +172,15 @@ final class Plugin extends \craft\base\Plugin
         $cache = Craft::$app->getCache();
         $cacheKey = self::MISCONFIGURED_LOG_KEY . implode(',', $missing);
 
-        if ($cache !== null && !$cache->add($cacheKey, true, self::MISCONFIGURED_LOG_TTL)) {
+        // add() also returns false when the cache cannot be written to, so the
+        // entry has to be confirmed before the report is suppressed. A cache
+        // that is missing or broken degrades to reporting every time, which is
+        // preferable to staying silent about a broken configuration.
+        if (
+            $cache !== null
+            && !$cache->add($cacheKey, true, self::MISCONFIGURED_LOG_TTL)
+            && $cache->exists($cacheKey)
+        ) {
             return;
         }
 
