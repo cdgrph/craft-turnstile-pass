@@ -32,7 +32,6 @@ final class ContactFormHookTest extends TestCase
     {
         $this->bootApp();
         \Yii::getLogger()->messages = [];
-        self::resetCachelessThrottle();
         $this->plugin = $this->createPlugin();
     }
 
@@ -350,10 +349,9 @@ final class ContactFormHookTest extends TestCase
     /**
      * A cache that cannot be written to returns false from add() just like a
      * cache that already holds the key. Suppressing on that would silence the
-     * report exactly when the site is already misconfigured, so the report is
-     * made — but only once, because there is no window left to enforce.
+     * report exactly when the site is already misconfigured.
      */
-    public function testBrokenCacheReportsOnceAndThenThrottles(): void
+    public function testBrokenCacheReportsEveryTime(): void
     {
         \Yii::$app->set('cache', new class extends ArrayCache {
             protected function addValue($key, $value, $duration): bool
@@ -375,25 +373,7 @@ final class ContactFormHookTest extends TestCase
         [, $second] = $this->createSendEvent();
         Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $second);
 
-        self::assertSame(1, $this->misconfigurationLogCount());
-    }
-
-    /**
-     * Craft attaches the submitted body to every log entry, so a repeatedly
-     * submitted form must not be able to fill the logs with visitor data.
-     */
-    public function testCachelessFallbackIsThrottledAcrossRequests(): void
-    {
-        \Yii::$app->set('cache', null);
-        $this->enablePluginWithoutKeys();
-        $this->setRequestBodyParams([]);
-
-        foreach (range(1, 5) as $ignored) {
-            [, $event] = $this->createSendEvent();
-            Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
-        }
-
-        self::assertSame(1, $this->misconfigurationLogCount());
+        self::assertSame(2, $this->misconfigurationLogCount());
     }
 
     public function testMissingCacheComponentStillReports(): void
@@ -523,12 +503,6 @@ final class ContactFormHookTest extends TestCase
         }
 
         return $count;
-    }
-
-    private static function resetCachelessThrottle(): void
-    {
-        $property = new \ReflectionProperty(Plugin::class, 'reportedWithoutCache');
-        $property->setValue(null, false);
     }
 
     private function misconfigurationLogMessages(): array

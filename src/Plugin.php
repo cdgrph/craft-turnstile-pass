@@ -23,13 +23,6 @@ final class Plugin extends \craft\base\Plugin
     private const MISCONFIGURED_LOG_KEY = 'turnstile-pass:misconfigured:';
     private const MISCONFIGURED_LOG_TTL = 900;
 
-    /**
-     * Set once the report has been made without a working cache to throttle it.
-     * Static so that the limit survives for the life of the PHP process rather
-     * than resetting on every request.
-     */
-    private static bool $reportedWithoutCache = false;
-
     public string $schemaVersion = '1.0.0';
     public bool $hasCpSettings = true;
 
@@ -203,21 +196,13 @@ final class Plugin extends \craft\base\Plugin
             $suppress = null;
         }
 
+        // Null means the cache could not hold the window. PHP keeps no state
+        // between requests, so there is nowhere else to count, and the report
+        // repeats for every affected request. That is deliberate: reaching this
+        // path takes two faults at once — an incomplete configuration and a
+        // broken cache — and such a site needs to be noticed, not kept quiet.
         if ($suppress === true) {
             return;
-        }
-
-        if ($suppress === null) {
-            // Without a cache there is no window to enforce, and Craft attaches
-            // the request context — including any submitted body — to every log
-            // entry, so an unthrottled fallback would let repeated submissions
-            // fill the logs with visitor data. Report once and then stay quiet
-            // rather than staying silent from the start.
-            if (self::$reportedWithoutCache) {
-                return;
-            }
-
-            self::$reportedWithoutCache = true;
         }
 
         Craft::error(
