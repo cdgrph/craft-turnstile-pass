@@ -37,7 +37,7 @@ final class TurnstileService extends \craft\base\Component
         }
 
         if (!$settings->hasSecretKey()) {
-            Craft::warning('Turnstile verification skipped because the secret key is missing.', __METHOD__);
+            Craft::warning('Turnstile verification rejected a submission because the secret key is missing.', __METHOD__);
             return $this->result(false, ['missing-secret-key']);
         }
 
