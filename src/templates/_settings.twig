@@ -1,5 +1,13 @@
 {% import '_includes/forms.twig' as forms %}
 
+{% if settings.isMisconfigured() %}
+    <div class="readable">
+        <blockquote class="note warning">
+            {{ 'Turnstile Pass is enabled but not fully configured. Set both a site key and a secret key below. Until both are set, the widget may not render and Contact Form submissions can be blocked as spam.'|t('turnstile-pass') }}
+        </blockquote>
+    </div>
+{% endif %}
+
 {{ forms.lightswitchField({
     label: 'Enable Turnstile'|t('turnstile-pass'),
     instructions: 'Automatically verify Contact Form submissions with Cloudflare Turnstile before they are sent.'|t('turnstile-pass'),

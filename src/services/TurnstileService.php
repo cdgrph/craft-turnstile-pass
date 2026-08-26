@@ -27,7 +27,7 @@ final class TurnstileService extends \craft\base\Component
     {
         $settings = Plugin::getInstance()->getSettings();
 
-        if (!$settings->enabled) {
+        if (!$settings->requiresVerification()) {
             return $this->result(true);
         }
 
@@ -36,11 +36,12 @@ final class TurnstileService extends \craft\base\Component
             return $this->result(false, ['invalid-input-response']);
         }
 
-        $secretKey = $settings->getSecretKey();
-        if ($secretKey === '') {
+        if (!$settings->hasSecretKey()) {
             Craft::warning('Turnstile verification skipped because the secret key is missing.', __METHOD__);
             return $this->result(false, ['missing-secret-key']);
         }
+
+        $secretKey = $settings->getSecretKey();
 
         $formParams = [
             'secret' => $secretKey,

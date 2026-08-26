@@ -10,11 +10,14 @@ use Twig\Markup;
 
 final class TurnstilePassVariable
 {
+    /**
+     * Whether the plugin can render a working widget.
+     *
+     * Kept under the original Twig-facing name for backwards compatibility.
+     */
     public function getIsEnabled(): bool
     {
-        $settings = Plugin::getInstance()->getSettings();
-
-        return $settings->enabled && $settings->getSiteKey() !== '';
+        return Plugin::getInstance()->isOperational();
     }
 
     public function getSiteKey(): string
@@ -25,6 +28,8 @@ final class TurnstilePassVariable
     public function script(array $options = []): Markup
     {
         if (!$this->getIsEnabled()) {
+            $this->reportIfMisconfigured();
+
             return Template::raw('');
         }
 
@@ -38,6 +43,8 @@ final class TurnstilePassVariable
     public function widget(array $options = []): Markup
     {
         if (!$this->getIsEnabled()) {
+            $this->reportIfMisconfigured();
+
             return Template::raw('');
         }
 
@@ -65,5 +72,16 @@ final class TurnstilePassVariable
         $attributes['data-sitekey'] = $this->getSiteKey();
 
         return Template::raw(Html::tag('div', '', $attributes));
+    }
+
+    /**
+     * Rendering nothing is the first visible symptom of a missing key, and it
+     * happens on every page view rather than only on a submission. Reporting
+     * here also covers sites that do not use the Contact Form plugin, where the
+     * submission-time diagnostic never runs.
+     */
+    private function reportIfMisconfigured(): void
+    {
+        Plugin::getInstance()->logMisconfiguration();
     }
 }

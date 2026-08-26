@@ -3,6 +3,7 @@
     <testsuites>
         <testsuite name="models"><directory>tests/models</directory></testsuite>
         <testsuite name="services"><directory>tests/services</directory></testsuite>
+        <testsuite name="variables"><directory>tests/variables</directory></testsuite>
         <testsuite name="functional"><directory>tests/functional</directory></testsuite>
     </testsuites>
 </phpunit>
