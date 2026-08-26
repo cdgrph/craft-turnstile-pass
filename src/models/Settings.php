@@ -17,15 +17,16 @@ final class Settings extends \craft\base\Model
      *
      * Turnstile keys are ASCII, so nothing legitimate is lost by removing what
      * a key picks up on its way through a clipboard, an editor or a
-     * spreadsheet: the C0 controls and the space, every Unicode separator, and
-     * every format character - the categories that hold the non-breaking
-     * space, the zero-width characters and a byte order mark.
+     * spreadsheet: every control character and the space, every Unicode
+     * separator, and every format character - the categories that hold the
+     * next line, the non-breaking space, the zero-width characters and a byte
+     * order mark.
      *
      * The general categories decide the set. Whether \s reaches beyond ASCII
      * is a PCRE build option, so leaving it in would make the PCRE version a
      * site happens to run part of the answer.
      */
-    private const KEY_PADDING = '\x00-\x20\p{Z}\p{Cf}';
+    private const KEY_PADDING = '\p{Cc}\x20\p{Z}\p{Cf}';
 
     /**
      * Removes that padding from both ends of a key.

@@ -177,6 +177,8 @@ final class SettingsTest extends TestCase
         yield 'left-to-right mark' => ["\u{200E}"];
         yield 'soft hyphen' => ["\u{00AD}"];
         yield 'Mongolian vowel separator' => ["\u{180E}"];
+        yield 'next line' => ["\u{0085}"];
+        yield 'delete' => ["\u{007F}"];
         yield 'mixed with ASCII whitespace' => [" \u{00A0}\t\u{FEFF}"];
     }
 
