@@ -30,7 +30,7 @@ php craft plugin/install turnstile-pass
 
 In the control panel, go to **Settings > Plugins > Turnstile Pass**, enable the plugin, and enter your Site Key and Secret Key. Both fields accept environment variable references such as `$TURNSTILE_SITE_KEY`.
 
-Both keys are required. When the plugin is enabled and either key is missing — for example because an environment variable is not defined on that environment — `script()` and `widget()` render nothing, the control panel settings screen shows a warning, and the plugin names the missing keys in a configuration error in Craft's logs. That error is written when a widget would have been rendered and when a Contact Form submission is verified, and repeats are suppressed for 15 minutes per missing-key combination while Craft's cache is working.
+Both keys are required. When the plugin is enabled and either key is missing — for example because an environment variable is not defined on that environment — `script()` and `widget()` render nothing, the control panel settings screen shows a warning, and the plugin names the missing keys in a configuration error in Craft's logs. That error is written when a widget would have been rendered and when a Contact Form submission is verified. Repeats are suppressed for 15 minutes per missing-key combination; if Craft's cache cannot hold that window, the error is reported once and then suppressed until the process restarts.
 
 Alternatively, create `config/turnstile-pass.php`:
 
@@ -85,7 +85,7 @@ When `craftcms/contact-form` is installed, Turnstile Pass automatically verifies
 
 **Important:** If Turnstile Pass is enabled but the widget is missing from the form, every submission will be blocked as spam because no Turnstile token is present.
 
-**Incomplete configuration:** If the plugin is enabled while a key is missing, verification is not skipped — submissions still fail closed. The plugin records a configuration error in Craft's logs naming the missing keys, so the cause is distinguishable from Contact Form's own spam warning. Rate limiting uses Craft's cache. A cache that is missing, unusable, or unreachable degrades to recording the error every time rather than staying silent, so 15 minutes is the suppression window when the cache works, not a guaranteed ceiling.
+**Incomplete configuration:** If the plugin is enabled while a key is missing, verification is not skipped — submissions still fail closed. The plugin records a configuration error in Craft's logs naming the missing keys, so the cause is distinguishable from Contact Form's own spam warning. Rate limiting uses Craft's cache. A cache that is missing, unusable, or unreachable falls back to reporting once per PHP process rather than staying silent, so the error is never lost but its rate is coarser than the 15 minute window.
 
 **Silent drops:** A CSP violation, ad blocker, network error, or unsupported browser can leave the token empty when the form is submitted. Turnstile Pass then treats the submission as spam and discards it, while the Contact Form plugin returns a success response to the visitor. Invisible mode has no widget, checkbox, loading indicator, or error UI, so this failure can be harder to notice.
 

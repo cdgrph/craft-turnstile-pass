@@ -23,6 +23,13 @@ final class Plugin extends \craft\base\Plugin
     private const MISCONFIGURED_LOG_KEY = 'turnstile-pass:misconfigured:';
     private const MISCONFIGURED_LOG_TTL = 900;
 
+    /**
+     * Set once the report has been made without a working cache to throttle it.
+     * Static so that the limit survives for the life of the PHP process rather
+     * than resetting on every request.
+     */
+    private static bool $reportedWithoutCache = false;
+
     public string $schemaVersion = '1.0.0';
     public bool $hasCpSettings = true;
 
@@ -172,24 +179,45 @@ final class Plugin extends \craft\base\Plugin
         // window belonging to the previous state has expired.
         $cacheKey = self::MISCONFIGURED_LOG_KEY . implode(',', $missing);
 
-        // add() also returns false when the cache cannot be written to, so the
-        // entry has to be confirmed before the report is suppressed, and an
-        // unreachable backend can throw rather than return at all. A cache that
-        // is missing, unusable, or throwing degrades to reporting every time:
-        // repeating the report is preferable to staying silent, and a
-        // diagnostic must never be the reason a page or a submission fails.
+        // Null means the cache could not answer: it is absent, unusable, or it
+        // threw. add() alone cannot be trusted, because it also returns false
+        // when the backend cannot be written to, and an unreachable backend can
+        // throw rather than return at all. A diagnostic must never be the
+        // reason a page or a submission fails.
+        $suppress = null;
+
         try {
             $cache = Craft::$app->getCache();
 
-            if (
-                $cache !== null
-                && !$cache->add($cacheKey, true, self::MISCONFIGURED_LOG_TTL)
-                && $cache->exists($cacheKey)
-            ) {
-                return;
+            if ($cache !== null) {
+                if ($cache->add($cacheKey, true, self::MISCONFIGURED_LOG_TTL)) {
+                    $suppress = false;
+                } elseif ($cache->exists($cacheKey)) {
+                    $suppress = true;
+                }
+
+                // Neither stored nor present means the write failed, so the
+                // window was never opened. Leave it null.
             }
         } catch (Throwable) {
-            // Fall through and report.
+            $suppress = null;
+        }
+
+        if ($suppress === true) {
+            return;
+        }
+
+        if ($suppress === null) {
+            // Without a cache there is no window to enforce, and Craft attaches
+            // the request context — including any submitted body — to every log
+            // entry, so an unthrottled fallback would let repeated submissions
+            // fill the logs with visitor data. Report once and then stay quiet
+            // rather than staying silent from the start.
+            if (self::$reportedWithoutCache) {
+                return;
+            }
+
+            self::$reportedWithoutCache = true;
         }
 
         Craft::error(
