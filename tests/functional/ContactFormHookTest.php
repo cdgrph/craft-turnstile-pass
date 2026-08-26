@@ -21,6 +21,8 @@ use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 use yii\base\Event;
+use yii\caching\ArrayCache;
+use yii\log\Logger;
 
 final class ContactFormHookTest extends TestCase
 {
@@ -29,6 +31,7 @@ final class ContactFormHookTest extends TestCase
     protected function setUp(): void
     {
         $this->bootApp();
+        \Yii::getLogger()->messages = [];
         $this->plugin = $this->createPlugin();
     }
 
@@ -196,6 +199,153 @@ final class ContactFormHookTest extends TestCase
         self::assertSame([], $submission->getErrors());
     }
 
+    public function testMissingKeysStillMarkSubmissionAsSpam(): void
+    {
+        $this->enablePluginWithoutKeys();
+        $this->setRequestBodyParams([]);
+        [$submission, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertTrue($event->isSpam);
+        self::assertTrue($submission->hasErrors('turnstile'));
+    }
+
+    public function testMisconfigurationIsLoggedOncePerCacheWindow(): void
+    {
+        $this->enablePluginWithoutKeys();
+        $this->setRequestBodyParams([]);
+
+        [, $first] = $this->createSendEvent();
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $first);
+        self::assertSame(1, $this->misconfigurationLogCount());
+
+        [, $second] = $this->createSendEvent();
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $second);
+        self::assertSame(1, $this->misconfigurationLogCount());
+    }
+
+    public function testMisconfigurationIsNotLoggedWhenFullyConfigured(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams([]);
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertTrue($event->isSpam);
+        self::assertSame(0, $this->misconfigurationLogCount());
+    }
+
+    public function testMisconfigurationIsNotLoggedWhenPluginIsDisabled(): void
+    {
+        $this->plugin->getSettings()->enabled = false;
+        $this->setRequestBodyParams([]);
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertSame(0, $this->misconfigurationLogCount());
+    }
+
+    public function testMisconfigurationIsNotLoggedForConsoleRequest(): void
+    {
+        $this->enablePluginWithoutKeys();
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertFalse($event->isSpam);
+        self::assertSame(0, $this->misconfigurationLogCount());
+    }
+
+    public function testMisconfigurationIsNotLoggedForAllowedSkip(): void
+    {
+        $this->enablePluginWithoutKeys();
+        $this->plugin->getSettings()->allowFormSkip = true;
+        $this->setRequestBodyParams([
+            'skipTurnstile' => 'true',
+        ]);
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertFalse($event->isSpam);
+        self::assertSame(0, $this->misconfigurationLogCount());
+    }
+
+    /**
+     * A missing site key does not block a submission on its own: verify() never
+     * reads the site key, so a template that renders its own widget can still
+     * produce a token that verifies. The diagnostic must still be logged.
+     */
+    public function testMissingSiteKeyStillAllowsSuccessfulVerification(): void
+    {
+        $this->enablePluginWithoutKeys(secretKey: true);
+        $this->setRequestBodyParams([
+            'cf-turnstile-response' => 'good-token',
+        ]);
+        $service = $this->plugin->get('turnstile');
+        self::assertInstanceOf(TurnstileService::class, $service);
+        $service->setClient(new Client([
+            'handler' => HandlerStack::create(new MockHandler([
+                new Response(200, [], '{"success":true}'),
+            ])),
+        ]));
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertFalse($event->isSpam);
+        self::assertSame(1, $this->misconfigurationLogCount());
+    }
+
+    public function testMisconfigurationIsLoggedAtErrorLevel(): void
+    {
+        $this->enablePluginWithoutKeys();
+        $this->setRequestBodyParams([]);
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertSame(1, $this->misconfigurationLogCount(Logger::LEVEL_ERROR));
+        self::assertSame(0, $this->misconfigurationLogCount(Logger::LEVEL_WARNING));
+    }
+
+    public function testMisconfigurationNamesTheMissingKeys(): void
+    {
+        $this->enablePluginWithoutKeys(siteKey: true);
+        $this->setRequestBodyParams([]);
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        $messages = $this->misconfigurationLogMessages();
+        self::assertCount(1, $messages);
+        self::assertStringContainsString('secret key', $messages[0]);
+        self::assertStringNotContainsString('site key', $messages[0]);
+    }
+
+    /**
+     * Fixing one key changes which keys are missing, so the remaining problem
+     * must surface immediately rather than waiting out the previous window.
+     */
+    public function testFixingOneKeyLogsAgainWithinTheSameWindow(): void
+    {
+        $this->enablePluginWithoutKeys();
+        $this->setRequestBodyParams([]);
+
+        [, $first] = $this->createSendEvent();
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $first);
+        self::assertSame(1, $this->misconfigurationLogCount());
+
+        $this->plugin->getSettings()->siteKey = 'configured-site';
+
+        [, $second] = $this->createSendEvent();
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $second);
+        self::assertSame(2, $this->misconfigurationLogCount());
+    }
+
     private function bootApp(): void
     {
         // Craft's PhpMessageSource resolves @translations for site-level
@@ -234,6 +384,7 @@ final class ContactFormHookTest extends TestCase
             'components' => [
                 'config' => $config,
                 'sites' => $sites,
+                'cache' => ArrayCache::class,
             ],
         ]) extends \yii\console\Application {
             public function getConfig(): Config
@@ -254,7 +405,50 @@ final class ContactFormHookTest extends TestCase
     {
         $settings = $this->plugin->getSettings();
         $settings->enabled = true;
+        $settings->siteKey = 'configured-site';
         $settings->secretKey = 'configured-secret';
+    }
+
+    /**
+     * Enables the plugin while leaving one or both keys unset, which is what an
+     * environment with a missing key environment variable looks like at runtime.
+     */
+    private function enablePluginWithoutKeys(bool $siteKey = false, bool $secretKey = false): void
+    {
+        $settings = $this->plugin->getSettings();
+        $settings->enabled = true;
+        $settings->siteKey = $siteKey ? 'configured-site' : '';
+        $settings->secretKey = $secretKey ? 'configured-secret' : '';
+    }
+
+    /**
+     * Counts diagnostics by category and level rather than by message text, so
+     * that changing the wording cannot quietly turn these assertions into no-ops.
+     */
+    private function misconfigurationLogCount(int $level = Logger::LEVEL_ERROR): int
+    {
+        $count = 0;
+
+        foreach (\Yii::getLogger()->messages as $message) {
+            if ($message[2] === Plugin::class . '::logMisconfiguration' && $message[1] === $level) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    private function misconfigurationLogMessages(): array
+    {
+        $messages = [];
+
+        foreach (\Yii::getLogger()->messages as $message) {
+            if ($message[2] === Plugin::class . '::logMisconfiguration') {
+                $messages[] = (string)$message[0];
+            }
+        }
+
+        return $messages;
     }
 
     /**

@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## 1.2.0 - 2026-08-26
+
+### Added
+
+- `requiresVerification()` and `isOperational()` on the plugin class, so custom controllers can reuse the plugin's own decisions instead of reimplementing them. Gate verification on `requiresVerification()`; use `isOperational()` to report configuration health.
+- A configuration error in Craft's logs, naming the missing keys, when the plugin is enabled while the site key or secret key is not set. It is written when a widget would have been rendered and when a Contact Form submission is verified, so it also reaches sites that do not use Contact Form. Contact Form logs a spam warning in that situation, which points away from the real cause. Rate limited to once every 15 minutes per missing-key combination.
+- A warning on the plugin's control panel settings screen when it is enabled but a key is missing.
+
+### Changed
+
+- `craft.turnstilePass.script()` and `craft.turnstilePass.widget()` now render nothing when the secret key is missing, matching the existing behaviour for a missing site key. Submissions were already blocked in that configuration.
+- Keys that resolve to whitespace only are treated as missing everywhere, including by `verify()`, which previously sent them to Cloudflare.
+
 ## 1.1.0 - 2026-07-23
 
 ### Added

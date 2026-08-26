@@ -227,4 +227,16 @@ final class TurnstileServiceTest extends TestCase
             'handler' => HandlerStack::create(new MockHandler($responses)),
         ]));
     }
+
+    public function testWhitespaceOnlySecretKeyIsTreatedAsMissing(): void
+    {
+        $settings = Plugin::getInstance()->getSettings();
+        $settings->enabled = true;
+        $settings->secretKey = '   ';
+
+        $result = $this->service->verify('token');
+
+        self::assertFalse($result['success']);
+        self::assertSame(['missing-secret-key'], $result['error_codes']);
+    }
 }

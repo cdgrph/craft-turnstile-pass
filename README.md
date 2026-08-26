@@ -30,6 +30,8 @@ php craft plugin/install turnstile-pass
 
 In the control panel, go to **Settings > Plugins > Turnstile Pass**, enable the plugin, and enter your Site Key and Secret Key. Both fields accept environment variable references such as `$TURNSTILE_SITE_KEY`.
 
+Both keys are required. When the plugin is enabled and either key is missing — for example because an environment variable is not defined on that environment — `script()` and `widget()` render nothing, the control panel settings screen shows a warning, and the plugin names the missing keys in a configuration error in Craft's logs. That error is written when a widget would have been rendered and when a Contact Form submission is verified, rate limited to once every 15 minutes per missing-key combination.
+
 Alternatively, create `config/turnstile-pass.php`:
 
 ```php
@@ -82,6 +84,8 @@ While this setting is on, any client can submit this field and bypass verificati
 When `craftcms/contact-form` is installed, Turnstile Pass automatically verifies every submission before it is sent. No custom server-side code is required: enable Turnstile Pass, render its script on the page, and render its widget inside the form.
 
 **Important:** If Turnstile Pass is enabled but the widget is missing from the form, every submission will be blocked as spam because no Turnstile token is present.
+
+**Incomplete configuration:** If the plugin is enabled while a key is missing, verification is not skipped — submissions still fail closed. The plugin records a configuration error in Craft's logs naming the missing keys, so the cause is distinguishable from Contact Form's own spam warning. Rate limiting uses Craft's cache; without a cache component the error is recorded every time instead of being suppressed.
 
 **Silent drops:** A CSP violation, ad blocker, network error, or unsupported browser can leave the token empty when the form is submitted. Turnstile Pass then treats the submission as spam and discards it, while the Contact Form plugin returns a success response to the visitor. Invisible mode has no widget, checkbox, loading indicator, or error UI, so this failure can be harder to notice.
 
@@ -146,22 +150,40 @@ Turnstile requires `https://challenges.cloudflare.com` to be allowed by both the
 For any custom form POST, read the token from the `cf-turnstile-response` body parameter and verify it in your module or controller:
 
 ```php
-$token = \Craft::$app->getRequest()->getBodyParam('cf-turnstile-response');
+private function verifyTurnstile(): void
+{
+    $plugin = \cdgrph\craftturnstilepass\Plugin::getInstance();
 
-if (!is_string($token) || $token === '') {
-    throw new \yii\web\BadRequestHttpException('Turnstile verification failed.');
-}
+    if ($plugin === null || !$plugin->requiresVerification()) {
+        return; // Turnstile Pass is not installed, or is switched off.
+    }
 
-$result = \cdgrph\craftturnstilepass\Plugin::getInstance()
-    ->turnstile
-    ->verify($token);
+    $token = \Craft::$app->getRequest()->getBodyParam('cf-turnstile-response');
 
-if (!$result['success']) {
-    throw new \yii\web\BadRequestHttpException('Turnstile verification failed.');
+    if (!is_string($token) || $token === '') {
+        throw new \yii\web\BadRequestHttpException('Turnstile verification failed.');
+    }
+
+    if (!$plugin->turnstile->verify($token)['success']) {
+        throw new \yii\web\BadRequestHttpException('Turnstile verification failed.');
+    }
 }
 ```
 
-The result contains only a boolean `success` value and an `error_codes` array. The `verify()` method does not expose or validate the Siteverify response's `action` or `hostname` values. If you rely on `action` or accept submissions across multiple hostnames, call the Siteverify API directly instead of `verify()` and compare those values yourself — tokens are single-use, so a token cannot be verified a second time.
+Call it from your action before you accept the submission. Keep the early return inside a dedicated method rather than in the action itself, so that a disabled plugin skips verification instead of ending the request.
+
+Gate on `requiresVerification()`, not on `isOperational()`. The two answer different questions:
+
+| Method | Question | Returns `false` when |
+|---|---|---|
+| `requiresVerification()` | Should this submission be verified? | The plugin is disabled |
+| `isOperational()` | Is the plugin fully configured? | The plugin is disabled **or** a key is missing |
+
+`isOperational()` reports configuration health, so it is the right check for rendering your own widget or for surfacing a warning. Using it to decide whether to verify would skip verification on an environment that is missing a key, which is the situation verification exists to cover.
+
+When `requiresVerification()` is true but `isOperational()` is false, `widget()` renders nothing, so no token is submitted and every submission is rejected. The plugin names the missing keys in Craft's logs when that happens.
+
+`verify()` returns only a boolean `success` value and an `error_codes` array. The `verify()` method does not expose or validate the Siteverify response's `action` or `hostname` values. If you rely on `action` or accept submissions across multiple hostnames, call the Siteverify API directly instead of `verify()` and compare those values yourself — tokens are single-use, so a token cannot be verified a second time.
 
 ## Widget modes
 
