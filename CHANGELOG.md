@@ -15,7 +15,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ### Changed
 
 - `craft.turnstilePass.script()` and `craft.turnstilePass.widget()` now render nothing when the secret key is missing, matching the existing behaviour for a missing site key. Submissions were already blocked in that configuration.
-- Site and secret keys are trimmed, including the surrounding non-breaking spaces, zero-width characters and byte order marks a pasted key can carry. A key that is empty once those are removed counts as missing, so the configuration error and the control panel warning name it; a key that merely carries them is used without them rather than being sent to Cloudflare verbatim.
+- Site and secret keys are trimmed, including the surrounding whitespace, separator and invisible formatting characters a pasted key can carry, such as a non-breaking space or a byte order mark. A key that is empty once those are removed counts as missing, so the configuration error and the control panel warning name it; a key that merely carries them is used without them rather than being sent to Cloudflare verbatim.
 
 ## 1.1.0 - 2026-07-23
 

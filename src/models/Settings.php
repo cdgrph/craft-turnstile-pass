@@ -15,14 +15,17 @@ final class Settings extends \craft\base\Model
     /**
      * The characters stripped from both ends of a key.
      *
-     * Turnstile keys are ASCII, so nothing legitimate is lost by removing the
-     * invisible characters a key picks up on its way through a clipboard, an
-     * editor or a spreadsheet: non-breaking and other Unicode spaces, the
-     * zero-width joiners, and a byte order mark. They are listed rather than
-     * left to \s, whose Unicode coverage differs between the PCRE versions
-     * shipped across the supported PHP releases.
+     * Turnstile keys are ASCII, so nothing legitimate is lost by removing what
+     * a key picks up on its way through a clipboard, an editor or a
+     * spreadsheet: the C0 controls and the space, every Unicode separator, and
+     * every format character - the categories that hold the non-breaking
+     * space, the zero-width characters and a byte order mark.
+     *
+     * The general categories decide the set. Whether \s reaches beyond ASCII
+     * is a PCRE build option, so leaving it in would make the PCRE version a
+     * site happens to run part of the answer.
      */
-    private const KEY_PADDING = '\s\x{00A0}\x{1680}\x{2000}-\x{200D}\x{2028}\x{2029}\x{202F}\x{205F}\x{2060}\x{3000}\x{FEFF}';
+    private const KEY_PADDING = '\x00-\x20\p{Z}\p{Cf}';
 
     /**
      * Removes that padding from both ends of a key.
@@ -31,7 +34,7 @@ final class Settings extends \craft\base\Model
      * rendered into the widget. Treating a padded key as present while using
      * the padded value would fail every verification with no configuration
      * error to explain it. trim() removes a fixed set of ASCII bytes, so it
-     * leaves that gap open for exactly the characters that arrive by paste.
+     * leaves that gap open for the characters most likely to arrive by paste.
      *
      * Every presence test and every diagnostic reads a key through here, so
      * isOperational(), missingKeyNames(), the configuration error and the

@@ -183,7 +183,7 @@ Gate on `requiresVerification()`, not on `isOperational()`. The two answer diffe
 
 When `requiresVerification()` is true but `isOperational()` is false, the plugin warns on its settings screen. A missing secret key makes `verify()` reject every submission. A missing site key stops `widget()` from rendering, so a form that relies on it submits no token and is rejected.
 
-The plugin also names the missing keys in a configuration error in Craft's logs, but only where it does the work itself: when `script()` or `widget()` would have rendered, and when a Contact Form submission is verified. A page that renders its own widget without calling `script()` or `widget()`, and posts to your own controller, reaches neither, so no configuration error is logged for it. Call `isOperational()` from your own code if you want that setup to report an incomplete configuration.
+The plugin also names the missing keys in a configuration error in Craft's logs, but only where it does the work itself: when `script()` or `widget()` would have rendered, and when a Contact Form submission is verified. A page that renders its own widget without calling `script()` or `widget()`, and posts to your own controller, reaches neither, so no configuration error is logged for it. `isOperational()` returns a boolean and writes nothing itself, so test it in your own code and report the result from there if you want that setup to surface an incomplete configuration.
 
 Set both keys even if your template renders its own widget. `verify()` itself does not read the site key, so a hand-rolled widget can still verify without one, but the plugin has no way to tell a deliberately unused site key apart from a missing environment variable, and keeps the configuration flagged as incomplete.
 

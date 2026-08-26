@@ -174,6 +174,9 @@ final class SettingsTest extends TestCase
         yield 'narrow no-break space' => ["\u{202F}"];
         yield 'zero width space' => ["\u{200B}"];
         yield 'byte order mark' => ["\u{FEFF}"];
+        yield 'left-to-right mark' => ["\u{200E}"];
+        yield 'soft hyphen' => ["\u{00AD}"];
+        yield 'Mongolian vowel separator' => ["\u{180E}"];
         yield 'mixed with ASCII whitespace' => [" \u{00A0}\t\u{FEFF}"];
     }
 
