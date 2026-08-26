@@ -11,6 +11,7 @@ use craft\base\Model;
 use craft\contactform\events\SendEvent;
 use craft\contactform\Mailer;
 use craft\web\twig\variables\CraftVariable;
+use Throwable;
 use yii\base\Event;
 
 /**
@@ -169,19 +170,26 @@ final class Plugin extends \craft\base\Plugin
         // Keying on which keys are missing means that fixing one of them
         // surfaces the remaining problem immediately, rather than after the
         // window belonging to the previous state has expired.
-        $cache = Craft::$app->getCache();
         $cacheKey = self::MISCONFIGURED_LOG_KEY . implode(',', $missing);
 
         // add() also returns false when the cache cannot be written to, so the
-        // entry has to be confirmed before the report is suppressed. A cache
-        // that is missing or broken degrades to reporting every time, which is
-        // preferable to staying silent about a broken configuration.
-        if (
-            $cache !== null
-            && !$cache->add($cacheKey, true, self::MISCONFIGURED_LOG_TTL)
-            && $cache->exists($cacheKey)
-        ) {
-            return;
+        // entry has to be confirmed before the report is suppressed, and an
+        // unreachable backend can throw rather than return at all. A cache that
+        // is missing, unusable, or throwing degrades to reporting every time:
+        // repeating the report is preferable to staying silent, and a
+        // diagnostic must never be the reason a page or a submission fails.
+        try {
+            $cache = Craft::$app->getCache();
+
+            if (
+                $cache !== null
+                && !$cache->add($cacheKey, true, self::MISCONFIGURED_LOG_TTL)
+                && $cache->exists($cacheKey)
+            ) {
+                return;
+            }
+        } catch (Throwable) {
+            // Fall through and report.
         }
 
         Craft::error(

@@ -389,6 +389,30 @@ final class ContactFormHookTest extends TestCase
         self::assertSame(1, $this->misconfigurationLogCount());
     }
 
+    /**
+     * An unreachable cache backend throws rather than returning false. A
+     * diagnostic must never be the reason a page or a submission fails.
+     */
+    public function testThrowingCacheDoesNotBreakTheSubmission(): void
+    {
+        \Yii::$app->set('cache', new class extends ArrayCache {
+            protected function addValue($key, $value, $duration): bool
+            {
+                throw new \RuntimeException('Cache backend is unreachable.');
+            }
+        });
+
+        $this->enablePluginWithoutKeys();
+        $this->setRequestBodyParams([]);
+        [$submission, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertSame(1, $this->misconfigurationLogCount());
+        self::assertTrue($event->isSpam);
+        self::assertTrue($submission->hasErrors('turnstile'));
+    }
+
     private function bootApp(): void
     {
         // Craft's PhpMessageSource resolves @translations for site-level
