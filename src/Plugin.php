@@ -33,10 +33,13 @@ final class Plugin extends \craft\base\Plugin
     private bool $misconfigurationReported = false;
 
     /**
-     * The verdict each submission has already received. Created on first use
-     * because a property cannot be initialised with an object.
+     * The verdict each submission has already received, against the token it
+     * was judged on. The key is both, which is everything the verdict depends
+     * on, so a reused submission or a reused token cannot inherit an answer
+     * that was not about it. Created on first use because a property cannot be
+     * initialised with an object.
      *
-     * @var WeakMap<object, bool>|null
+     * @var WeakMap<object, array<string, bool>>|null
      */
     private ?WeakMap $verdicts = null;
 
@@ -217,10 +220,11 @@ final class Plugin extends \craft\base\Plugin
      * send hook on the same request, so without a memo the second look would
      * reject a submission the first one accepted.
      *
-     * The verdict is held against the submission rather than the token, so a
-     * second submission cannot ride on the first one's answer. It is asked
-     * again, and Cloudflare then refuses the token it has already spent, which
-     * is what keeps one token to one submission. A caller that hands over no
+     * The verdict is held against the submission and the token together, so
+     * neither a second submission nor a second token can inherit an answer
+     * that was not about it. A submission asked again is asked of Cloudflare
+     * again, which then refuses the token it has already spent, and that is
+     * what keeps one token to one submission. A caller that hands over no
      * submission gets a verdict without a memo rather than a shared one.
      */
     private function verifyOnce(?object $submission, string $token): bool
@@ -231,7 +235,14 @@ final class Plugin extends \craft\base\Plugin
 
         $this->verdicts ??= new WeakMap();
 
-        return $this->verdicts[$submission] ??= (bool)$this->turnstile->verify($token)['success'];
+        $verdicts = $this->verdicts[$submission] ?? [];
+
+        if (!array_key_exists($token, $verdicts)) {
+            $verdicts[$token] = (bool)$this->turnstile->verify($token)['success'];
+            $this->verdicts[$submission] = $verdicts;
+        }
+
+        return $verdicts[$token];
     }
 
     /**

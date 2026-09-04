@@ -580,6 +580,30 @@ final class ContactFormHookTest extends TestCase
     }
 
     /**
+     * The verdict is held against the submission and the token together, so a
+     * submission that is judged again with a different token is judged on the
+     * new one rather than inheriting the earlier answer.
+     */
+    public function testTheSameSubmissionWithANewTokenIsJudgedAgain(): void
+    {
+        $this->enablePlugin();
+        $this->mockVerifyResponses(
+            '{"success":true}',
+            '{"success":false,"error-codes":["invalid-input-response"]}',
+        );
+
+        $submission = $this->createValidSubmission();
+
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'first-token']);
+        self::assertTrue($submission->validate());
+
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'second-token']);
+
+        self::assertFalse($submission->validate());
+        self::assertTrue($submission->hasErrors('turnstile'));
+    }
+
+    /**
      * One token admits one submission. A second submission carrying the same
      * token is asked again rather than inheriting the first answer, and
      * Cloudflare then refuses the token it has already spent.
