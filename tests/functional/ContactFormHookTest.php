@@ -5,10 +5,13 @@ namespace cdgrph\craftturnstilepass\tests\functional;
 
 use cdgrph\craftturnstilepass\Plugin;
 use cdgrph\craftturnstilepass\services\TurnstileService;
+use craft\base\Model;
 use craft\config\GeneralConfig;
+use craft\contactform\controllers\SendController;
 use craft\contactform\events\SendEvent;
 use craft\contactform\Mailer;
 use craft\contactform\models\Submission;
+use craft\i18n\PhpMessageSource;
 use craft\models\Site;
 use craft\services\Config;
 use craft\services\Sites;
@@ -33,12 +36,14 @@ final class ContactFormHookTest extends TestCase
         $this->bootApp();
         \Yii::getLogger()->messages = [];
         $this->plugin = $this->createPlugin();
+        $this->enterSendAction();
     }
 
     protected function tearDown(): void
     {
         Event::off(CraftVariable::class, CraftVariable::EVENT_INIT);
         Event::off(Mailer::class, Mailer::EVENT_BEFORE_SEND);
+        Event::off(Submission::class, Model::EVENT_AFTER_VALIDATE);
         Event::off(View::class, View::EVENT_REGISTER_CP_TEMPLATE_ROOTS);
         Plugin::setInstance(null);
         \Yii::$app = null;
@@ -429,6 +434,353 @@ final class ContactFormHookTest extends TestCase
         self::assertTrue($submission->hasErrors('turnstile'));
     }
 
+    /**
+     * Contact Form validates the submission before it fires EVENT_BEFORE_SEND,
+     * and only a failed validation makes send() return false, which is the one
+     * path the controller turns into a visible failure. Rejecting here is what
+     * reaches the visitor.
+     */
+    public function testMissingTokenFailsValidation(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams([]);
+        $submission = $this->createValidSubmission();
+
+        self::assertFalse($submission->validate());
+        self::assertTrue($submission->hasErrors('turnstile'));
+    }
+
+    public function testNonStringTokenFailsValidation(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams([
+            'cf-turnstile-response' => ['not-a-string'],
+        ]);
+        $submission = $this->createValidSubmission();
+
+        self::assertFalse($submission->validate());
+        self::assertTrue($submission->hasErrors('turnstile'));
+    }
+
+    public function testFailedVerificationFailsValidation(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams([
+            'cf-turnstile-response' => 'bad-token',
+        ]);
+        $this->mockVerifyResponses('{"success":false,"error-codes":["invalid-input-response"]}');
+        $submission = $this->createValidSubmission();
+
+        self::assertFalse($submission->validate());
+        self::assertTrue($submission->hasErrors('turnstile'));
+    }
+
+    public function testSuccessfulVerificationLeavesValidationPassing(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams([
+            'cf-turnstile-response' => 'good-token',
+        ]);
+        $this->mockVerifyResponses('{"success":true}');
+        $submission = $this->createValidSubmission();
+
+        self::assertTrue($submission->validate());
+        self::assertSame([], $submission->getErrors());
+    }
+
+    /**
+     * Turnstile tokens are single use. Verifying the same token again returns
+     * timeout-or-duplicate, which would reject a submission that had already
+     * passed. The mock holds one response, so a second call fails the test.
+     */
+    public function testTokenIsVerifiedOncePerRequest(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams([
+            'cf-turnstile-response' => 'good-token',
+        ]);
+        $this->mockVerifyResponses('{"success":true}');
+        $submission = $this->createValidSubmission();
+
+        self::assertTrue($submission->validate());
+
+        $event = new SendEvent(['submission' => $submission]);
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertFalse($event->isSpam);
+    }
+
+    public function testDisabledPluginLeavesValidationUntouched(): void
+    {
+        $this->plugin->getSettings()->enabled = false;
+        $this->setRequestBodyParams([]);
+        $submission = $this->createValidSubmission();
+
+        self::assertTrue($submission->validate());
+        self::assertSame([], $submission->getErrors());
+    }
+
+    public function testAllowedSkipLeavesValidationUntouched(): void
+    {
+        $this->enablePlugin();
+        $this->plugin->getSettings()->allowFormSkip = true;
+        $this->setRequestBodyParams([
+            'skipTurnstile' => 'true',
+        ]);
+        $submission = $this->createValidSubmission();
+
+        self::assertTrue($submission->validate());
+        self::assertSame([], $submission->getErrors());
+    }
+
+    public function testConsoleRequestLeavesValidationUntouched(): void
+    {
+        $this->enablePlugin();
+        $submission = $this->createValidSubmission();
+
+        self::assertTrue($submission->validate());
+        self::assertSame([], $submission->getErrors());
+    }
+
+    /**
+     * A submission that Contact Form's own rules already reject is not
+     * verified, so the token it carries survives the retry. The mock holds no
+     * responses, so any verification attempt fails this test.
+     */
+    public function testSubmissionFailingItsOwnRulesIsNotVerified(): void
+    {
+        $this->enablePlugin();
+        $this->registerContactFormTranslations();
+        $this->setRequestBodyParams([
+            'cf-turnstile-response' => 'good-token',
+        ]);
+        $this->mockVerifyResponses();
+        $submission = new Submission();
+
+        self::assertFalse($submission->validate());
+        self::assertTrue($submission->hasErrors('fromEmail'));
+        self::assertFalse($submission->hasErrors('turnstile'));
+    }
+
+    /**
+     * A caller that validates and then sends without validating again reaches
+     * the send hook with the error already recorded, so it is not repeated.
+     */
+    public function testSendHookDoesNotRepeatAnExistingError(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams([]);
+        $submission = $this->createValidSubmission();
+
+        self::assertFalse($submission->validate());
+
+        $event = new SendEvent(['submission' => $submission]);
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertTrue($event->isSpam);
+        self::assertCount(1, $submission->getErrors('turnstile'));
+    }
+
+    /**
+     * The waiting verdict spares the send that follows validation, and nothing
+     * else.
+     * A submission sent a second time is verified again, and Cloudflare then
+     * refuses the token it has already spent.
+     */
+    public function testASecondSendIsVerifiedAgain(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'one-token']);
+        $this->mockVerifyResponses(
+            '{"success":true}',
+            '{"success":false,"error-codes":["timeout-or-duplicate"]}',
+        );
+
+        $submission = $this->createValidSubmission();
+        self::assertTrue($submission->validate());
+
+        $first = new SendEvent(['submission' => $submission]);
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $first);
+        self::assertFalse($first->isSpam);
+
+        $second = new SendEvent(['submission' => $submission]);
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $second);
+
+        self::assertTrue($second->isSpam);
+    }
+
+    /**
+     * A caller that sends without validating leaves no verdict behind, so each
+     * send is verified on its own.
+     */
+    public function testSendingWithoutValidatingIsVerifiedEachTime(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'one-token']);
+        $this->mockVerifyResponses(
+            '{"success":true}',
+            '{"success":false,"error-codes":["timeout-or-duplicate"]}',
+        );
+
+        $submission = $this->createValidSubmission();
+
+        $first = new SendEvent(['submission' => $submission]);
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $first);
+        self::assertFalse($first->isSpam);
+
+        $second = new SendEvent(['submission' => $submission]);
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $second);
+
+        self::assertTrue($second->isSpam);
+    }
+
+    /**
+     * A submission validated while another action is running is being asked
+     * about, not sent, so its token is left for the send that follows, which
+     * may be a later request. The mock holds no responses, so any verification
+     * fails this test.
+     */
+    public function testValidatingOutsideTheSendActionIsNotVerified(): void
+    {
+        $this->enablePlugin();
+        $this->leaveSendAction();
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'good-token']);
+        $this->mockVerifyResponses();
+
+        $submission = $this->createValidSubmission();
+
+        self::assertTrue($submission->validate());
+        self::assertSame([], $submission->getErrors());
+    }
+
+    /**
+     * The send hook is not scoped to the action. Whatever reaches the mailer,
+     * an unverified submission is still stopped, even though Contact Form
+     * gives the visitor a success response for it.
+     */
+    public function testSendHookActsOutsideTheSendAction(): void
+    {
+        $this->enablePlugin();
+        $this->leaveSendAction();
+        $this->setRequestBodyParams([]);
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertTrue($event->isSpam);
+    }
+
+    /**
+     * The whole chain a caller falls into: validate to handle ordinary model
+     * errors, then hand the submission to the mailer, which validates again
+     * before sending. One send attempt, one token, one verification. The mock
+     * holds a single response, so any extra verification fails this test.
+     */
+    public function testValidatingBeforeSendingSpendsOneToken(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'one-token']);
+        $this->mockVerifyResponses('{"success":true}');
+
+        $submission = $this->createValidSubmission();
+
+        self::assertTrue($submission->validate());
+        self::assertTrue($submission->validate());
+
+        $event = new SendEvent(['submission' => $submission]);
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertFalse($event->isSpam);
+    }
+
+    /**
+     * Validating twice is not sending twice. A caller that validates before
+     * handing the submission to the mailer, which validates again on its own,
+     * is still making one send attempt and gets one answer. The mock holds a
+     * single response, so a second verification fails this test.
+     */
+    public function testValidatingTwiceWithTheSameTokenIsJudgedOnce(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'one-token']);
+        $this->mockVerifyResponses('{"success":true}');
+
+        $submission = $this->createValidSubmission();
+
+        self::assertTrue($submission->validate());
+        self::assertTrue($submission->validate());
+        self::assertSame([], $submission->getErrors());
+    }
+
+    /**
+     * The verdict is held against the submission and the token together, so a
+     * submission that is judged again with a different token is judged on the
+     * new one rather than inheriting the earlier answer.
+     */
+    public function testTheSameSubmissionWithANewTokenIsJudgedAgain(): void
+    {
+        $this->enablePlugin();
+        $this->mockVerifyResponses(
+            '{"success":true}',
+            '{"success":false,"error-codes":["invalid-input-response"]}',
+        );
+
+        $submission = $this->createValidSubmission();
+
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'first-token']);
+        self::assertTrue($submission->validate());
+
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'second-token']);
+
+        self::assertFalse($submission->validate());
+        self::assertTrue($submission->hasErrors('turnstile'));
+    }
+
+    /**
+     * One token admits one submission. A second submission carrying the same
+     * token is asked again rather than inheriting the first answer, and
+     * Cloudflare then refuses the token it has already spent.
+     */
+    public function testASecondSubmissionCannotRideOnTheFirstVerdict(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'one-token']);
+        $this->mockVerifyResponses(
+            '{"success":true}',
+            '{"success":false,"error-codes":["timeout-or-duplicate"]}',
+        );
+
+        $first = $this->createValidSubmission();
+        self::assertTrue($first->validate());
+
+        $second = $this->createValidSubmission();
+
+        self::assertFalse($second->validate());
+        self::assertTrue($second->hasErrors('turnstile'));
+    }
+
+    /**
+     * A second submission with a different token is judged on its own answer
+     * too, so the memo does not collapse distinct tokens.
+     */
+    public function testASecondTokenInTheSameRequestIsJudgedOnItsOwn(): void
+    {
+        $this->enablePlugin();
+        $this->mockVerifyResponses(
+            '{"success":true}',
+            '{"success":false,"error-codes":["invalid-input-response"]}',
+        );
+
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'first-token']);
+        self::assertTrue($this->createValidSubmission()->validate());
+
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'second-token']);
+        $second = $this->createValidSubmission();
+
+        self::assertFalse($second->validate());
+        self::assertTrue($second->hasErrors('turnstile'));
+    }
+
     private function bootApp(): void
     {
         // Craft's PhpMessageSource resolves @translations for site-level
@@ -475,6 +827,25 @@ final class ContactFormHookTest extends TestCase
                 return $this->get('config');
             }
         };
+    }
+
+    /**
+     * Puts the app in Contact Form's send action, which is the only place the
+     * validation hook acts. A real request is in it whenever Contact Form is
+     * on its way to sending.
+     */
+    private function enterSendAction(): void
+    {
+        \Yii::$app->controller = new SendController('send', \Yii::$app);
+    }
+
+    /**
+     * Runs a different action, which is what a form that validates over AJAX,
+     * or any other caller, is doing.
+     */
+    private function leaveSendAction(): void
+    {
+        \Yii::$app->controller = new \yii\web\Controller('other', \Yii::$app);
     }
 
     private function createPlugin(): Plugin
@@ -542,6 +913,46 @@ final class ContactFormHookTest extends TestCase
         $request = new Request();
         $request->setBodyParams($bodyParams);
         \Yii::$app->set('request', $request);
+    }
+
+    /**
+     * A submission that Contact Form's own rules accept, so that a failed
+     * validation can only come from the turnstile check.
+     */
+    private function createValidSubmission(): Submission
+    {
+        $submission = new Submission();
+        $submission->fromEmail = 'visitor@example.com';
+        $submission->message = 'Hello';
+
+        return $submission;
+    }
+
+    /**
+     * Contact Form's attribute labels translate through its own category,
+     * which Craft registers when the plugin loads. The bare test app has no
+     * plugins, so the category is registered the same way here.
+     */
+    private function registerContactFormTranslations(): void
+    {
+        \Yii::$app->getI18n()->translations['contact-form'] = [
+            'class' => PhpMessageSource::class,
+            'sourceLanguage' => 'en',
+            'basePath' => \dirname(__DIR__, 2) . '/vendor/craftcms/contact-form/src/translations',
+            'forceTranslation' => true,
+            'allowOverrides' => true,
+        ];
+    }
+
+    private function mockVerifyResponses(string ...$bodies): void
+    {
+        $service = $this->plugin->get('turnstile');
+        self::assertInstanceOf(TurnstileService::class, $service);
+        $service->setClient(new Client([
+            'handler' => HandlerStack::create(new MockHandler(
+                array_map(static fn(string $body): Response => new Response(200, [], $body), $bodies),
+            )),
+        ]));
     }
 
     /**

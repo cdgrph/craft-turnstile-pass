@@ -83,13 +83,34 @@ While this setting is on, any client can submit this field and bypass verificati
 
 When `craftcms/contact-form` is installed, Turnstile Pass automatically verifies every submission before it is sent. No custom server-side code is required: enable Turnstile Pass, render its script on the page, and render its widget inside the form.
 
-**Important:** If Turnstile Pass is enabled but the widget is missing from the form, submissions will be blocked as spam because no Turnstile token is present. The plugin reads the token from the request rather than the form, so it is the token that decides, not the markup.
+**Important:** If Turnstile Pass is enabled but the widget is missing from the form, submissions are rejected because no Turnstile token is present. The plugin reads the token from the request rather than the form, so it is the token that decides, not the markup.
 
-**Incomplete configuration:** An incomplete configuration does not switch verification off. A missing secret key makes verification reject every submission that reaches it. A missing site key stops both `script()` and `widget()` from rendering, so a form that relies on either submits no token and is rejected. A form that renders its own widget and loads the Turnstile script itself still submits a token, and `verify()` judges it on the secret key alone — from there the token has to satisfy everything any other token does. A submission that skips verification under **Allow Per-Form Skip** reaches neither the check nor the log, whatever the keys hold. The plugin records a configuration error in Craft's logs naming the missing keys, so the cause is distinguishable from Contact Form's own spam warning. Rate limiting uses Craft's cache. A cache that is missing, unusable, or unreachable records the error once per affected request rather than staying silent. Reaching that state takes two faults at once — an incomplete configuration and a broken cache — and the log volume is the signal that both need attention.
+**Incomplete configuration:** An incomplete configuration does not switch verification off. A missing secret key makes verification reject every submission that reaches it. A missing site key stops both `script()` and `widget()` from rendering, so a form that relies on either submits no token and is rejected. A form that renders its own widget and loads the Turnstile script itself still submits a token, and `verify()` judges it on the secret key alone — from there the token has to satisfy everything any other token does. A submission that skips verification under **Allow Per-Form Skip** reaches neither the check nor the log, whatever the keys hold. The plugin records a configuration error in Craft's logs naming the missing keys, so the cause is distinguishable from Contact Form's own report of a rejected submission. Rate limiting uses Craft's cache. A cache that is missing, unusable, or unreachable records the error once per affected request rather than staying silent. Reaching that state takes two faults at once — an incomplete configuration and a broken cache — and the log volume is the signal that both need attention.
 
-**Silent drops:** A CSP violation, ad blocker, network error, or unsupported browser can leave the token empty when the form is submitted. Turnstile Pass then treats the submission as spam and discards it, while the Contact Form plugin returns a success response to the visitor. Invisible mode has no widget, checkbox, loading indicator, or error UI, so this failure can be harder to notice.
+**Rejected submissions:** An otherwise valid submission that carries no token, or a token Cloudflare does not accept, fails validation with an error on the `turnstile` attribute. Contact Form then returns its own failure response instead of a success one. A request that accepts JSON receives a 400 response whose `errors` object carries the `turnstile` message. A form that posts normally is not redirected: Craft sets Contact Form's failure flash message, hands the page the `submission` model, and re-renders it, so what the visitor actually sees depends on the template rendering that flash and those errors. A template that renders neither re-displays the form with nothing to explain it. This renders both:
 
-**Availability:** Verification fails closed. If the Cloudflare siteverify API is unreachable, submissions are blocked as spam — the Contact Form plugin still shows visitors a success response, so the drop is silent from their perspective. Each attempt that fails because the API could not be reached is recorded in Craft's logs (`connection-failed`), so monitor your logs if you suspect an outage. A token that Cloudflare itself rejects is not logged.
+```twig
+{% set failure = craft.app.session.getFlash('error') %}
+{% if failure %}<p role="alert">{{ failure }}</p>{% endif %}
+
+{% if submission is defined %}
+    {% for error in submission.getErrors('turnstile') %}
+        <p role="alert">{{ error }}</p>
+    {% endfor %}
+{% endif %}
+```
+
+`submission` reaches the page only after a failed post, and `devMode` makes Twig strict about undefined variables, so the guard is required rather than defensive. Reading the flash does not remove it, so render it in one place: a layout and a template that both render it show the message twice. A request that accepts JSON needs none of this, because the 400 response carries the message at `errors.turnstile`.
+
+A submission that fails the Submission model's own validation rules — a missing or malformed email address, a missing message — is not verified at all, so the token it carries is left unspent for the retry. An attachment with a disallowed file extension is caught after verification, so that token is already spent and the visitor needs a new one.
+
+A rejection is not itself recorded in Craft's logs. Contact Form reports it at a level production logging drops, so the rate at which visitors are turned away is not visible there. The plugin logs only the causes it can name: a missing secret key, an oversized token, a request that could not reach Cloudflare, an unreadable response, and an incomplete configuration.
+
+A token is missing for reasons other than a bot. A Content Security Policy violation, an ad blocker, a network error, an expired challenge, or an unsupported browser all leave the response field empty. Invisible mode shows no widget, checkbox, or loading indicator, so what the form itself renders on failure is all the visitor sees.
+
+The visitor is told only while Contact Form's own send action is handling the request, because that is the only validation on its way to sending. A custom controller that calls the mailer itself, and any call that skips validation such as `Mailer::send($submission, false)`, still has the submission blocked, but Contact Form turns that into a success response, so nothing reaches the visitor. Verification is also left alone outside that action, so a form that validates a submission over AJAX before posting it does not spend the token on that.
+
+**Availability:** Verification fails closed. If the Cloudflare siteverify API is unreachable, submissions are rejected the same way a failed verification is, so an outage turns into visible failures rather than lost messages. Each attempt that fails because the API could not be reached is recorded in Craft's logs (`connection-failed`), so monitor your logs if you suspect an outage. A token that Cloudflare itself rejects is not logged.
 
 ## Error handling
 

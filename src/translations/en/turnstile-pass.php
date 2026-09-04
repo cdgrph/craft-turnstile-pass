@@ -11,7 +11,7 @@ return [
     'Render the Turnstile API script and widget in your form template:' => 'Render the Turnstile API script and widget in your form template:',
     'Secret Key' => 'Secret Key',
     'Site Key' => 'Site Key',
-    'Turnstile Pass is enabled but not fully configured. Set both a site key and a secret key below. Until both are set, the widget may not render and Contact Form submissions can be blocked as spam.' => 'Turnstile Pass is enabled but not fully configured. Set both a site key and a secret key below. Until both are set, the widget may not render and Contact Form submissions can be blocked as spam.',
+    'Turnstile Pass is enabled but not fully configured. Set both a site key and a secret key below. Until both are set, the widget may not render and Contact Form submissions can be rejected.' => 'Turnstile Pass is enabled but not fully configured. Set both a site key and a secret key below. Until both are set, the widget may not render and Contact Form submissions can be rejected.',
     'Usage' => 'Usage',
     'Verification failed. Please try again.' => 'Verification failed. Please try again.',
     'You can also configure the plugin with config/turnstile-pass.php.' => 'You can also configure the plugin with config/turnstile-pass.php.',

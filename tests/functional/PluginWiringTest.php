@@ -5,7 +5,9 @@ namespace cdgrph\craftturnstilepass\tests\functional;
 
 use cdgrph\craftturnstilepass\models\Settings;
 use cdgrph\craftturnstilepass\Plugin;
+use craft\base\Model;
 use craft\contactform\Mailer;
+use craft\contactform\models\Submission;
 use craft\web\View;
 use craft\web\twig\variables\CraftVariable;
 use PHPUnit\Framework\TestCase;
@@ -22,6 +24,7 @@ final class PluginWiringTest extends TestCase
     {
         Event::off(CraftVariable::class, CraftVariable::EVENT_INIT);
         Event::off(Mailer::class, Mailer::EVENT_BEFORE_SEND);
+        Event::off(Submission::class, Model::EVENT_AFTER_VALIDATE);
         Event::off(View::class, View::EVENT_REGISTER_CP_TEMPLATE_ROOTS);
         Plugin::setInstance(null);
         \Yii::$app = null;
@@ -44,13 +47,27 @@ final class PluginWiringTest extends TestCase
         ));
     }
 
-    public function testContactFormHookRegistered(): void
+    public function testContactFormSendHookRegistered(): void
     {
         $this->createPlugin();
 
         self::assertTrue(Event::hasHandlers(
             Mailer::class,
             Mailer::EVENT_BEFORE_SEND,
+        ));
+    }
+
+    /**
+     * The validation hook is what reaches the visitor, so its registration is
+     * pinned here alongside the send hook rather than only through behaviour.
+     */
+    public function testSubmissionValidationHookRegistered(): void
+    {
+        $this->createPlugin();
+
+        self::assertTrue(Event::hasHandlers(
+            Submission::class,
+            Model::EVENT_AFTER_VALIDATE,
         ));
     }
 
