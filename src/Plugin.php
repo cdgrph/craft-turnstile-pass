@@ -33,15 +33,17 @@ final class Plugin extends \craft\base\Plugin
     private bool $misconfigurationReported = false;
 
     /**
-     * The verdict each submission has already received, against the token it
-     * was judged on. The key is both, which is everything the verdict depends
-     * on, so a reused submission or a reused token cannot inherit an answer
-     * that was not about it. Created on first use because a property cannot be
-     * initialised with an object.
+     * The verdict validation reached, left for the send that would otherwise
+     * reach it again.
      *
-     * @var WeakMap<object, array<string, bool>>|null
+     * Each one is written by validation and taken by the next send, which
+     * removes it. It is not a cache: anything sent again is verified again,
+     * which leaves Cloudflare to refuse a token it has already spent. Created
+     * on first use because a property cannot be initialised with an object.
+     *
+     * @var WeakMap<object, array{token: string, passed: bool}>|null
      */
-    private ?WeakMap $verdicts = null;
+    private ?WeakMap $pendingVerdicts = null;
 
     public string $schemaVersion = '1.0.0';
     public bool $hasCpSettings = true;
@@ -133,7 +135,16 @@ final class Plugin extends \craft\base\Plugin
                     return;
                 }
 
-                if ($this->turnstileVerdict($submission) === false) {
+                $judged = $this->judgeRequest();
+
+                if ($judged === null) {
+                    return;
+                }
+
+                $this->pendingVerdicts ??= new WeakMap();
+                $this->pendingVerdicts[$submission] = $judged;
+
+                if (!$judged['passed']) {
                     $submission->addError('turnstile', $this->rejectionMessage());
                 }
             },
@@ -147,12 +158,15 @@ final class Plugin extends \craft\base\Plugin
             Mailer::class,
             Mailer::EVENT_BEFORE_SEND,
             function(SendEvent $event): void {
-                // The event's submission is untyped, so it is only usable as a
-                // memo key, and only as an error target, when it is what
+                // The event's submission is untyped, so it identifies a waiting
+                // verdict, and names an error target, only when it is what
                 // Contact Form puts there.
                 $submission = $event->submission;
 
-                if ($this->turnstileVerdict(is_object($submission) ? $submission : null) !== false) {
+                $judged = is_object($submission) ? $this->takePendingVerdict($submission) : null;
+                $judged ??= $this->judgeRequest();
+
+                if ($judged === null || $judged['passed']) {
                     return;
                 }
 
@@ -171,13 +185,15 @@ final class Plugin extends \craft\base\Plugin
     }
 
     /**
-     * Whether the current request carries a token Turnstile accepts.
+     * Judges the current request, and reports the token it judged.
      *
      * Returns null when verification does not apply to the request, so that
      * callers leave the submission alone rather than reading "not checked" as
      * either a pass or a failure.
+     *
+     * @return array{token: string, passed: bool}|null
      */
-    private function turnstileVerdict(?object $submission): ?bool
+    private function judgeRequest(): ?array
     {
         if (!$this->requiresVerification()) {
             return null;
@@ -201,48 +217,58 @@ final class Plugin extends \craft\base\Plugin
         // missing site key still leaves a verifiable token.
         $this->logMisconfiguration();
 
-        $token = $request->getBodyParam('cf-turnstile-response');
+        $token = $this->submittedToken($request);
 
-        // Reject non-string values (e.g. cf-turnstile-response[]=x)
-        // instead of letting verify(string) raise a TypeError.
-        if (!is_string($token) || $token === '') {
-            return false;
+        if ($token === '') {
+            return ['token' => $token, 'passed' => false];
         }
 
-        return $this->verifyOnce($submission, $token);
+        return [
+            'token' => $token,
+            'passed' => (bool)$this->turnstile->verify($token)['success'],
+        ];
     }
 
     /**
-     * Verifies a submission's token at most once.
+     * The token this request offers, as a string.
      *
-     * Turnstile tokens are single use: verifying the same token again returns
-     * timeout-or-duplicate. A submission that passes validation reaches the
-     * send hook on the same request, so without a memo the second look would
-     * reject a submission the first one accepted.
-     *
-     * The verdict is held against the submission and the token together, so
-     * neither a second submission nor a second token can inherit an answer
-     * that was not about it. A submission asked again is asked of Cloudflare
-     * again, which then refuses the token it has already spent, and that is
-     * what keeps one token to one submission. A caller that hands over no
-     * submission gets a verdict without a memo rather than a shared one.
+     * A non-string value (cf-turnstile-response[]=x) becomes an empty string
+     * rather than reaching verify(string) and raising a TypeError. An empty
+     * string is not a token, so it is refused without asking Cloudflare.
      */
-    private function verifyOnce(?object $submission, string $token): bool
+    private function submittedToken(Request $request): string
     {
-        if ($submission === null) {
-            return (bool)$this->turnstile->verify($token)['success'];
+        $token = $request->getBodyParam('cf-turnstile-response');
+
+        return is_string($token) ? $token : '';
+    }
+
+    /**
+     * Takes the verdict validation left for this submission, if it answers for
+     * the token the request still offers.
+     *
+     * Taking removes it. Turnstile tokens are single use, so the one look this
+     * saves is the second look at the submission validation already judged.
+     * Everything after that is a fresh use of the token and is verified as one.
+     *
+     * @return array{token: string, passed: bool}|null
+     */
+    private function takePendingVerdict(object $submission): ?array
+    {
+        if ($this->pendingVerdicts === null || !isset($this->pendingVerdicts[$submission])) {
+            return null;
         }
 
-        $this->verdicts ??= new WeakMap();
+        $judged = $this->pendingVerdicts[$submission];
+        unset($this->pendingVerdicts[$submission]);
 
-        $verdicts = $this->verdicts[$submission] ?? [];
+        $request = Craft::$app->getRequest();
 
-        if (!array_key_exists($token, $verdicts)) {
-            $verdicts[$token] = (bool)$this->turnstile->verify($token)['success'];
-            $this->verdicts[$submission] = $verdicts;
+        if (!$request instanceof Request || $this->submittedToken($request) !== $judged['token']) {
+            return null;
         }
 
-        return $verdicts[$token];
+        return $judged;
     }
 
     /**

@@ -580,6 +580,80 @@ final class ContactFormHookTest extends TestCase
     }
 
     /**
+     * The waiting verdict spares the send that follows validation, and nothing
+     * else.
+     * A submission sent a second time is verified again, and Cloudflare then
+     * refuses the token it has already spent.
+     */
+    public function testASecondSendIsVerifiedAgain(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'one-token']);
+        $this->mockVerifyResponses(
+            '{"success":true}',
+            '{"success":false,"error-codes":["timeout-or-duplicate"]}',
+        );
+
+        $submission = $this->createValidSubmission();
+        self::assertTrue($submission->validate());
+
+        $first = new SendEvent(['submission' => $submission]);
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $first);
+        self::assertFalse($first->isSpam);
+
+        $second = new SendEvent(['submission' => $submission]);
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $second);
+
+        self::assertTrue($second->isSpam);
+    }
+
+    /**
+     * A caller that sends without validating leaves no verdict behind, so each
+     * send is verified on its own.
+     */
+    public function testSendingWithoutValidatingIsVerifiedEachTime(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'one-token']);
+        $this->mockVerifyResponses(
+            '{"success":true}',
+            '{"success":false,"error-codes":["timeout-or-duplicate"]}',
+        );
+
+        $submission = $this->createValidSubmission();
+
+        $first = new SendEvent(['submission' => $submission]);
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $first);
+        self::assertFalse($first->isSpam);
+
+        $second = new SendEvent(['submission' => $submission]);
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $second);
+
+        self::assertTrue($second->isSpam);
+    }
+
+    /**
+     * Deliberate: validating the same submission twice is two uses of a token
+     * that may be used once, so Cloudflare refuses the second. Validation
+     * always asks; only the send that follows it is spared the second look.
+     */
+    public function testValidatingTwiceWithTheSameTokenIsRefused(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'one-token']);
+        $this->mockVerifyResponses(
+            '{"success":true}',
+            '{"success":false,"error-codes":["timeout-or-duplicate"]}',
+        );
+
+        $submission = $this->createValidSubmission();
+
+        self::assertTrue($submission->validate());
+        self::assertFalse($submission->validate());
+        self::assertTrue($submission->hasErrors('turnstile'));
+    }
+
+    /**
      * The verdict is held against the submission and the token together, so a
      * submission that is judged again with a different token is judged on the
      * new one rather than inheriting the earlier answer.
