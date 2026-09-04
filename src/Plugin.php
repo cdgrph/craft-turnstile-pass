@@ -9,6 +9,7 @@ use cdgrph\craftturnstilepass\services\TurnstileService;
 use cdgrph\craftturnstilepass\variables\TurnstilePassVariable;
 use craft\base\Model;
 use craft\contactform\events\SendEvent;
+use craft\contactform\controllers\SendController;
 use craft\contactform\Mailer;
 use craft\contactform\models\Submission;
 use craft\web\Request;
@@ -108,7 +109,11 @@ final class Plugin extends \craft\base\Plugin
 
     private function registerContactFormHooks(): void
     {
-        if (!class_exists(Mailer::class) || !class_exists(Submission::class)) {
+        if (
+            !class_exists(Mailer::class)
+            || !class_exists(Submission::class)
+            || !class_exists(SendController::class)
+        ) {
             return;
         }
 
@@ -125,6 +130,14 @@ final class Plugin extends \craft\base\Plugin
                 // Not defensive: a static Event::trigger() on the class leaves the
                 // sender null, and addError() on null is fatal.
                 if (!$submission instanceof Submission) {
+                    return;
+                }
+
+                // Only the validation Contact Form runs on its way to sending is
+                // about to send. Anything else that validates a submission is
+                // asking a question, and a token spent answering it is not
+                // there for the send that follows.
+                if (!Craft::$app->controller instanceof SendController) {
                     return;
                 }
 

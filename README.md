@@ -108,7 +108,7 @@ A rejection is not itself recorded in Craft's logs. Contact Form reports it at a
 
 A token is missing for reasons other than a bot. A Content Security Policy violation, an ad blocker, a network error, an expired challenge, or an unsupported browser all leave the response field empty. Invisible mode shows no widget, checkbox, or loading indicator, so what the form itself renders on failure is all the visitor sees.
 
-Code that calls `Mailer::send($submission, false)` skips validation and never reaches this check. Such a submission is still blocked, but Contact Form short-circuits it to a success response, so the visitor is not told.
+The visitor is told only while Contact Form's own send action is handling the request, because that is the only validation on its way to sending. A custom controller that calls the mailer itself, and any call that skips validation such as `Mailer::send($submission, false)`, still has the submission blocked, but Contact Form turns that into a success response, so nothing reaches the visitor. Verification is also left alone outside that action, so a form that validates a submission over AJAX before posting it does not spend the token on that.
 
 **Availability:** Verification fails closed. If the Cloudflare siteverify API is unreachable, submissions are rejected the same way a failed verification is, so an outage turns into visible failures rather than lost messages. Each attempt that fails because the API could not be reached is recorded in Craft's logs (`connection-failed`), so monitor your logs if you suspect an outage. A token that Cloudflare itself rejects is not logged.
 

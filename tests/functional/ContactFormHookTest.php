@@ -7,6 +7,7 @@ use cdgrph\craftturnstilepass\Plugin;
 use cdgrph\craftturnstilepass\services\TurnstileService;
 use craft\base\Model;
 use craft\config\GeneralConfig;
+use craft\contactform\controllers\SendController;
 use craft\contactform\events\SendEvent;
 use craft\contactform\Mailer;
 use craft\contactform\models\Submission;
@@ -35,6 +36,7 @@ final class ContactFormHookTest extends TestCase
         $this->bootApp();
         \Yii::getLogger()->messages = [];
         $this->plugin = $this->createPlugin();
+        $this->enterSendAction();
     }
 
     protected function tearDown(): void
@@ -633,6 +635,42 @@ final class ContactFormHookTest extends TestCase
     }
 
     /**
+     * A submission validated while another action is running is being asked
+     * about, not sent, so its token is left for the send that follows, which
+     * may be a later request. The mock holds no responses, so any verification
+     * fails this test.
+     */
+    public function testValidatingOutsideTheSendActionIsNotVerified(): void
+    {
+        $this->enablePlugin();
+        $this->leaveSendAction();
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'good-token']);
+        $this->mockVerifyResponses();
+
+        $submission = $this->createValidSubmission();
+
+        self::assertTrue($submission->validate());
+        self::assertSame([], $submission->getErrors());
+    }
+
+    /**
+     * The send hook is not scoped to the action. Whatever reaches the mailer,
+     * an unverified submission is still stopped, even though Contact Form
+     * gives the visitor a success response for it.
+     */
+    public function testSendHookActsOutsideTheSendAction(): void
+    {
+        $this->enablePlugin();
+        $this->leaveSendAction();
+        $this->setRequestBodyParams([]);
+        [, $event] = $this->createSendEvent();
+
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertTrue($event->isSpam);
+    }
+
+    /**
      * The whole chain a caller falls into: validate to handle ordinary model
      * errors, then hand the submission to the mailer, which validates again
      * before sending. One send attempt, one token, one verification. The mock
@@ -789,6 +827,25 @@ final class ContactFormHookTest extends TestCase
                 return $this->get('config');
             }
         };
+    }
+
+    /**
+     * Puts the app in Contact Form's send action, which is the only place the
+     * validation hook acts. A real request is in it whenever Contact Form is
+     * on its way to sending.
+     */
+    private function enterSendAction(): void
+    {
+        \Yii::$app->controller = new SendController('send', \Yii::$app);
+    }
+
+    /**
+     * Runs a different action, which is what a form that validates over AJAX,
+     * or any other caller, is doing.
+     */
+    private function leaveSendAction(): void
+    {
+        \Yii::$app->controller = new \yii\web\Controller('other', \Yii::$app);
     }
 
     private function createPlugin(): Plugin
