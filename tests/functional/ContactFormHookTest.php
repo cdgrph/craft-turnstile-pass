@@ -633,24 +633,45 @@ final class ContactFormHookTest extends TestCase
     }
 
     /**
-     * Deliberate: validating the same submission twice is two uses of a token
-     * that may be used once, so Cloudflare refuses the second. Validation
-     * always asks; only the send that follows it is spared the second look.
+     * The whole chain a caller falls into: validate to handle ordinary model
+     * errors, then hand the submission to the mailer, which validates again
+     * before sending. One send attempt, one token, one verification. The mock
+     * holds a single response, so any extra verification fails this test.
      */
-    public function testValidatingTwiceWithTheSameTokenIsRefused(): void
+    public function testValidatingBeforeSendingSpendsOneToken(): void
     {
         $this->enablePlugin();
         $this->setRequestBodyParams(['cf-turnstile-response' => 'one-token']);
-        $this->mockVerifyResponses(
-            '{"success":true}',
-            '{"success":false,"error-codes":["timeout-or-duplicate"]}',
-        );
+        $this->mockVerifyResponses('{"success":true}');
 
         $submission = $this->createValidSubmission();
 
         self::assertTrue($submission->validate());
-        self::assertFalse($submission->validate());
-        self::assertTrue($submission->hasErrors('turnstile'));
+        self::assertTrue($submission->validate());
+
+        $event = new SendEvent(['submission' => $submission]);
+        Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
+
+        self::assertFalse($event->isSpam);
+    }
+
+    /**
+     * Validating twice is not sending twice. A caller that validates before
+     * handing the submission to the mailer, which validates again on its own,
+     * is still making one send attempt and gets one answer. The mock holds a
+     * single response, so a second verification fails this test.
+     */
+    public function testValidatingTwiceWithTheSameTokenIsJudgedOnce(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'one-token']);
+        $this->mockVerifyResponses('{"success":true}');
+
+        $submission = $this->createValidSubmission();
+
+        self::assertTrue($submission->validate());
+        self::assertTrue($submission->validate());
+        self::assertSame([], $submission->getErrors());
     }
 
     /**

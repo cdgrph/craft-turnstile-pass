@@ -36,10 +36,12 @@ final class Plugin extends \craft\base\Plugin
      * The verdict validation reached, left for the send that would otherwise
      * reach it again.
      *
-     * Each one is written by validation and taken by the next send, which
-     * removes it. It is not a cache: anything sent again is verified again,
-     * which leaves Cloudflare to refuse a token it has already spent. Created
-     * on first use because a property cannot be initialised with an object.
+     * Validation reads it as often as it likes, because asking whether a
+     * submission is authorised is not a use of its token. The first send takes
+     * it, and it is gone: sending is the use. Anything sent again is verified
+     * again, which leaves Cloudflare to refuse a token it has already spent.
+     * Created on first use because a property cannot be initialised with an
+     * object.
      *
      * @var WeakMap<object, array{token: string, passed: bool}>|null
      */
@@ -135,7 +137,10 @@ final class Plugin extends \craft\base\Plugin
                     return;
                 }
 
-                $judged = $this->judgeRequest();
+                // Reading rather than taking: Contact Form's own send() validates
+                // again, and a caller that validated first must not have spent
+                // the token on that. One send attempt gets one answer.
+                $judged = $this->readVerdict($submission) ?? $this->judgeRequest();
 
                 if ($judged === null) {
                     return;
@@ -163,7 +168,7 @@ final class Plugin extends \craft\base\Plugin
                 // Contact Form puts there.
                 $submission = $event->submission;
 
-                $judged = is_object($submission) ? $this->takePendingVerdict($submission) : null;
+                $judged = is_object($submission) ? $this->takeVerdict($submission) : null;
                 $judged ??= $this->judgeRequest();
 
                 if ($judged === null || $judged['passed']) {
@@ -244,28 +249,43 @@ final class Plugin extends \craft\base\Plugin
     }
 
     /**
-     * Takes the verdict validation left for this submission, if it answers for
-     * the token the request still offers.
-     *
-     * Taking removes it. Turnstile tokens are single use, so the one look this
-     * saves is the second look at the submission validation already judged.
-     * Everything after that is a fresh use of the token and is verified as one.
+     * The verdict already reached for this submission, if it answers for the
+     * token the request still offers.
      *
      * @return array{token: string, passed: bool}|null
      */
-    private function takePendingVerdict(object $submission): ?array
+    private function readVerdict(object $submission): ?array
     {
         if ($this->pendingVerdicts === null || !isset($this->pendingVerdicts[$submission])) {
             return null;
         }
 
         $judged = $this->pendingVerdicts[$submission];
-        unset($this->pendingVerdicts[$submission]);
-
         $request = Craft::$app->getRequest();
 
         if (!$request instanceof Request || $this->submittedToken($request) !== $judged['token']) {
             return null;
+        }
+
+        return $judged;
+    }
+
+    /**
+     * The same verdict, forgotten as it is returned.
+     *
+     * Turnstile tokens are single use, and the use is the send. So the send
+     * that follows validation is spared the second look, and every send after
+     * it is verified on its own. A verdict left for a token the request no
+     * longer offers is dropped rather than reused.
+     *
+     * @return array{token: string, passed: bool}|null
+     */
+    private function takeVerdict(object $submission): ?array
+    {
+        $judged = $this->readVerdict($submission);
+
+        if ($this->pendingVerdicts !== null) {
+            unset($this->pendingVerdicts[$submission]);
         }
 
         return $judged;
