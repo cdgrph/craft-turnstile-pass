@@ -580,9 +580,31 @@ final class ContactFormHookTest extends TestCase
     }
 
     /**
-     * The verdict is held per token rather than per request, so a second token
-     * in the same request is judged on its own answer instead of inheriting
-     * the first one's.
+     * One token admits one submission. A second submission carrying the same
+     * token is asked again rather than inheriting the first answer, and
+     * Cloudflare then refuses the token it has already spent.
+     */
+    public function testASecondSubmissionCannotRideOnTheFirstVerdict(): void
+    {
+        $this->enablePlugin();
+        $this->setRequestBodyParams(['cf-turnstile-response' => 'one-token']);
+        $this->mockVerifyResponses(
+            '{"success":true}',
+            '{"success":false,"error-codes":["timeout-or-duplicate"]}',
+        );
+
+        $first = $this->createValidSubmission();
+        self::assertTrue($first->validate());
+
+        $second = $this->createValidSubmission();
+
+        self::assertFalse($second->validate());
+        self::assertTrue($second->hasErrors('turnstile'));
+    }
+
+    /**
+     * A second submission with a different token is judged on its own answer
+     * too, so the memo does not collapse distinct tokens.
      */
     public function testASecondTokenInTheSameRequestIsJudgedOnItsOwn(): void
     {

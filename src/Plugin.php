@@ -14,6 +14,7 @@ use craft\contactform\models\Submission;
 use craft\web\Request;
 use craft\web\twig\variables\CraftVariable;
 use Throwable;
+use WeakMap;
 use yii\base\Event;
 
 /**
@@ -32,12 +33,12 @@ final class Plugin extends \craft\base\Plugin
     private bool $misconfigurationReported = false;
 
     /**
-     * The verdict each token has already received, bound to one request,
-     * which is the lifetime of a token.
+     * The verdict each submission has already received. Created on first use
+     * because a property cannot be initialised with an object.
      *
-     * @var array<string, bool>
+     * @var WeakMap<object, bool>|null
      */
-    private array $verdicts = [];
+    private ?WeakMap $verdicts = null;
 
     public string $schemaVersion = '1.0.0';
     public bool $hasCpSettings = true;
@@ -129,7 +130,7 @@ final class Plugin extends \craft\base\Plugin
                     return;
                 }
 
-                if ($this->turnstileVerdict() === false) {
+                if ($this->turnstileVerdict($submission) === false) {
                     $submission->addError('turnstile', $this->rejectionMessage());
                 }
             },
@@ -143,14 +144,19 @@ final class Plugin extends \craft\base\Plugin
             Mailer::class,
             Mailer::EVENT_BEFORE_SEND,
             function(SendEvent $event): void {
-                if ($this->turnstileVerdict() !== false) {
+                // The event's submission is untyped, so it is only usable as a
+                // memo key, and only as an error target, when it is what
+                // Contact Form puts there.
+                $submission = $event->submission;
+
+                if ($this->turnstileVerdict(is_object($submission) ? $submission : null) !== false) {
                     return;
                 }
 
                 $event->isSpam = true;
 
-                if (!$event->submission->hasErrors('turnstile')) {
-                    $event->submission->addError('turnstile', $this->rejectionMessage());
+                if ($submission instanceof Submission && !$submission->hasErrors('turnstile')) {
+                    $submission->addError('turnstile', $this->rejectionMessage());
                 }
             },
         );
@@ -168,7 +174,7 @@ final class Plugin extends \craft\base\Plugin
      * callers leave the submission alone rather than reading "not checked" as
      * either a pass or a failure.
      */
-    private function turnstileVerdict(): ?bool
+    private function turnstileVerdict(?object $submission): ?bool
     {
         if (!$this->requiresVerification()) {
             return null;
@@ -200,20 +206,32 @@ final class Plugin extends \craft\base\Plugin
             return false;
         }
 
-        return $this->verifyOnce($token);
+        return $this->verifyOnce($submission, $token);
     }
 
     /**
-     * Verifies a token at most once per request.
+     * Verifies a submission's token at most once.
      *
      * Turnstile tokens are single use: verifying the same token again returns
      * timeout-or-duplicate. A submission that passes validation reaches the
-     * send hook on the same request, so without this the second look would
+     * send hook on the same request, so without a memo the second look would
      * reject a submission the first one accepted.
+     *
+     * The verdict is held against the submission rather than the token, so a
+     * second submission cannot ride on the first one's answer. It is asked
+     * again, and Cloudflare then refuses the token it has already spent, which
+     * is what keeps one token to one submission. A caller that hands over no
+     * submission gets a verdict without a memo rather than a shared one.
      */
-    private function verifyOnce(string $token): bool
+    private function verifyOnce(?object $submission, string $token): bool
     {
-        return $this->verdicts[$token] ??= (bool)$this->turnstile->verify($token)['success'];
+        if ($submission === null) {
+            return (bool)$this->turnstile->verify($token)['success'];
+        }
+
+        $this->verdicts ??= new WeakMap();
+
+        return $this->verdicts[$submission] ??= (bool)$this->turnstile->verify($token)['success'];
     }
 
     /**
