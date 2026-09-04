@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## 1.3.0 - 2026-09-04
+
+### Changed
+
+- A Contact Form submission that fails Turnstile verification is now rejected as a validation failure instead of being discarded as spam. Contact Form returns its own failure response — a 400 carrying a `turnstile` error for a request that accepts JSON, and for a normal post a failure flash and the re-rendered page rather than a redirect — instead of a success response for a message that was never sent.
+- What a normal post shows the visitor depends on the template, which has to render the flash message and `submission.getErrors('turnstile')`. Code that sends without validating, such as `Mailer::send($submission, false)`, still blocks the submission without telling the visitor.
+- A submission that fails Contact Form's own rules is no longer verified, so the Turnstile token it carries is left unspent for the resubmission.
+
 ## 1.2.0 - 2026-08-26
 
 ### Added

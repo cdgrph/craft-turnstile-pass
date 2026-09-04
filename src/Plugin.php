@@ -10,6 +10,8 @@ use cdgrph\craftturnstilepass\variables\TurnstilePassVariable;
 use craft\base\Model;
 use craft\contactform\events\SendEvent;
 use craft\contactform\Mailer;
+use craft\contactform\models\Submission;
+use craft\web\Request;
 use craft\web\twig\variables\CraftVariable;
 use Throwable;
 use yii\base\Event;
@@ -28,6 +30,14 @@ final class Plugin extends \craft\base\Plugin
      * instance lives for one request, which is the only scope this can bound.
      */
     private bool $misconfigurationReported = false;
+
+    /**
+     * The verdict each token has already received, bound to one request,
+     * which is the lifetime of a token.
+     *
+     * @var array<string, bool>
+     */
+    private array $verdicts = [];
 
     public string $schemaVersion = '1.0.0';
     public bool $hasCpSettings = true;
@@ -61,7 +71,7 @@ final class Plugin extends \craft\base\Plugin
 
         $this->setComponents(['turnstile' => TurnstileService::class]);
         $this->registerVariable();
-        $this->registerContactFormHook();
+        $this->registerContactFormHooks();
     }
 
     protected function createSettingsModel(): ?Model
@@ -88,63 +98,122 @@ final class Plugin extends \craft\base\Plugin
         );
     }
 
-    private function registerContactFormHook(): void
+    private function registerContactFormHooks(): void
     {
-        if (!class_exists(Mailer::class)) {
+        if (!class_exists(Mailer::class) || !class_exists(Submission::class)) {
             return;
         }
 
+        // Contact Form validates the submission before it fires
+        // EVENT_BEFORE_SEND, and send() returns false only when validation
+        // fails. That is the one outcome its controller turns into a visible
+        // failure, so a rejection has to be recorded here to reach the visitor.
+        Event::on(
+            Submission::class,
+            Model::EVENT_AFTER_VALIDATE,
+            function(Event $event): void {
+                $submission = $event->sender;
+
+                // Not defensive: a static Event::trigger() on the class leaves the
+                // sender null, and addError() on null is fatal.
+                if (!$submission instanceof Submission) {
+                    return;
+                }
+
+                // A submission that already failed Contact Form's own rules is
+                // rejected whatever this adds, and the visitor will send it
+                // again. Spending the token on it would consume a token that
+                // the retry still needs, because a form that is not re-rendered
+                // resubmits the one it already holds.
+                if ($submission->hasErrors()) {
+                    return;
+                }
+
+                if ($this->turnstileVerdict() === false) {
+                    $submission->addError('turnstile', $this->rejectionMessage());
+                }
+            },
+        );
+
+        // A second layer for callers that send without validating, such as
+        // send($submission, false), which never reach the check above. Contact
+        // Form short-circuits spam to a silent success, so on its own this
+        // stops the mail without telling the visitor anything.
         Event::on(
             Mailer::class,
             Mailer::EVENT_BEFORE_SEND,
             function(SendEvent $event): void {
-                if (!$this->requiresVerification()) {
+                if ($this->turnstileVerdict() !== false) {
                     return;
                 }
 
-                $request = Craft::$app->getRequest();
-                if (!$request instanceof \craft\web\Request) {
-                    return;
-                }
+                $event->isSpam = true;
 
-                // Honor per-form skips only behind the opt-in; the default still verifies every submission.
-                if ($this->getSettings()->allowFormSkip) {
-                    $skip = $request->getBodyParam('skipTurnstile');
-                    if (is_string($skip) && filter_var($skip, FILTER_VALIDATE_BOOLEAN)) {
-                        return;
-                    }
-                }
-
-                // Reported after the skip checks and before the token checks so it
-                // covers every remaining outcome, including the case where a
-                // missing site key still leaves a verifiable token.
-                $this->logMisconfiguration();
-
-                // Contact Form short-circuits spam to a silent success, so the
-                // submission error is informational only (kept in case a future
-                // Contact Form version surfaces errors for spam submissions).
-                $reject = static function(SendEvent $event): void {
-                    $event->isSpam = true;
-                    $event->submission->addError(
-                        'turnstile',
-                        Craft::t('turnstile-pass', 'Verification failed. Please try again.'),
-                    );
-                };
-
-                $token = $request->getBodyParam('cf-turnstile-response');
-
-                // Reject non-string values (e.g. cf-turnstile-response[]=x)
-                // instead of letting verify(string) raise a TypeError.
-                if (!is_string($token) || $token === '') {
-                    $reject($event);
-                    return;
-                }
-
-                if (!$this->turnstile->verify($token)['success']) {
-                    $reject($event);
+                if (!$event->submission->hasErrors('turnstile')) {
+                    $event->submission->addError('turnstile', $this->rejectionMessage());
                 }
             },
         );
+    }
+
+    private function rejectionMessage(): string
+    {
+        return Craft::t('turnstile-pass', 'Verification failed. Please try again.');
+    }
+
+    /**
+     * Whether the current request carries a token Turnstile accepts.
+     *
+     * Returns null when verification does not apply to the request, so that
+     * callers leave the submission alone rather than reading "not checked" as
+     * either a pass or a failure.
+     */
+    private function turnstileVerdict(): ?bool
+    {
+        if (!$this->requiresVerification()) {
+            return null;
+        }
+
+        $request = Craft::$app->getRequest();
+        if (!$request instanceof Request) {
+            return null;
+        }
+
+        // Honor per-form skips only behind the opt-in; the default still verifies every submission.
+        if ($this->getSettings()->allowFormSkip) {
+            $skip = $request->getBodyParam('skipTurnstile');
+            if (is_string($skip) && filter_var($skip, FILTER_VALIDATE_BOOLEAN)) {
+                return null;
+            }
+        }
+
+        // Reported after the skip checks and before the token checks so it
+        // covers every remaining outcome, including the case where a
+        // missing site key still leaves a verifiable token.
+        $this->logMisconfiguration();
+
+        $token = $request->getBodyParam('cf-turnstile-response');
+
+        // Reject non-string values (e.g. cf-turnstile-response[]=x)
+        // instead of letting verify(string) raise a TypeError.
+        if (!is_string($token) || $token === '') {
+            return false;
+        }
+
+        return $this->verifyOnce($token);
+    }
+
+    /**
+     * Verifies a token at most once per request.
+     *
+     * Turnstile tokens are single use: verifying the same token again returns
+     * timeout-or-duplicate. A submission that passes validation reaches the
+     * send hook on the same request, so without this the second look would
+     * reject a submission the first one accepted.
+     */
+    private function verifyOnce(string $token): bool
+    {
+        return $this->verdicts[$token] ??= (bool)$this->turnstile->verify($token)['success'];
     }
 
     /**
@@ -153,8 +222,10 @@ final class Plugin extends \craft\base\Plugin
      * Does nothing when the plugin is disabled or fully configured, so callers
      * do not have to test for that first.
      *
-     * Contact Form logs spam as a warning, which points away from the real
-     * cause, so this is logged at error level. It is rate limited because a
+     * Contact Form reports a rejected submission below the level production
+     * logging keeps, and the spam warning it still writes for a caller that
+     * skips validation points away from the real cause, so this is logged at
+     * error level. It is rate limited because a
      * misconfigured site can be hit repeatedly, and Craft attaches the request
      * context, including any submitted body, to every log entry. Rate limiting
      * therefore depends on the cache component; without one, reporting the
@@ -224,8 +295,8 @@ final class Plugin extends \craft\base\Plugin
         Craft::error(
             sprintf(
                 'Turnstile Pass is enabled but not fully configured (missing: %s). '
-                . 'The widget is not rendered and submissions can be blocked as '
-                . 'spam. Check the plugin settings and this environment\'s key '
+                . 'The widget is not rendered and submissions can be '
+                . 'rejected. Check the plugin settings and this environment\'s key '
                 . 'environment variables.',
                 implode(' and ', $missing),
             ),
