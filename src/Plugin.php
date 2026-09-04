@@ -121,7 +121,7 @@ final class Plugin extends \craft\base\Plugin
                     return;
                 }
 
-                // A submission that already failed Contact Form's own rules is
+                // A submission that already failed its own validation rules is
                 // rejected whatever this adds, and the visitor will send it
                 // again. Spending the token on it would consume a token that
                 // the retry still needs, because a form that is not re-rendered
