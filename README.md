@@ -100,7 +100,7 @@ When `craftcms/contact-form` is installed, Turnstile Pass automatically verifies
 {% endif %}
 ```
 
-`submission` reaches the page only after a failed post, and `devMode` makes Twig strict about undefined variables, so the guard is required rather than defensive. Read the flash once: reading it clears it. A request that accepts JSON needs none of this, because the 400 response carries the message at `errors.turnstile`.
+`submission` reaches the page only after a failed post, and `devMode` makes Twig strict about undefined variables, so the guard is required rather than defensive. Reading the flash does not remove it, so render it in one place: a layout and a template that both render it show the message twice. A request that accepts JSON needs none of this, because the 400 response carries the message at `errors.turnstile`.
 
 A submission that fails the Submission model's own validation rules — a missing or malformed email address, a missing message — is not verified at all, so the token it carries is left unspent for the retry. An attachment with a disallowed file extension is caught after verification, so that token is already spent and the visitor needs a new one.
 
