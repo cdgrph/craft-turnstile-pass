@@ -168,11 +168,16 @@ final class TurnstilePassVariableTest extends TestCase
         self::assertSame(2, substr_count($script, 'data-cfasync="false"'));
         self::assertSame(1, substr_count($script, 'id="turnstile-api"'));
         self::assertSame(1, substr_count($script, 'src='));
+
+        $script = (string)$this->variable->script(['data' => ['cfasync' => 'false']]);
+
+        self::assertSame(2, substr_count($script, 'data-cfasync="false"'));
     }
 
     /**
      * Runs the rendered callback in Node, so the classification is checked by
-     * behaviour rather than by its source text.
+     * behaviour rather than by its source text. The script is evaluated twice,
+     * as it is when a page calls script() more than once.
      */
     public function testDefaultErrorCallbackReportsOnlyConfigurationCodes(): void
     {
@@ -189,40 +194,51 @@ final class TurnstilePassVariableTest extends TestCase
 const window = {};
 const thrown = [];
 globalThis.setTimeout = (fn) => { try { fn(); } catch (e) { thrown.push(e.message); } };
-eval(require('fs').readFileSync(0, 'utf8'));
+const source = require('fs').readFileSync(0, 'utf8');
 const results = {};
-for (const code of ['600010', '300030', '110600', '110620', '200500', '110100', '110110', '110200', '400020', '400070', '400020', '200100', '999999']) {
+const codes = ['600010', '300030', '110600', '110620', '200500', '200100', '999999', '110100', '110110', '110200', '400020', '400070'];
+eval(source);
+for (const code of codes) {
     results[code] = window.turnstilePassOnError(Number(code));
+}
+eval(source);
+for (const code of codes) {
+    window.turnstilePassOnError(Number(code));
 }
 process.stdout.write(JSON.stringify({ results, thrown }));
 JS;
-        $process = proc_open([$node, '-e', $harness], [0 => ['pipe', 'r'], 1 => ['pipe', 'w']], $pipes);
+        $process = proc_open([$node, '-e', $harness], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         self::assertIsResource($process);
         fwrite($pipes[0], $match[1]);
         fclose($pipes[0]);
-        $output = json_decode((string)stream_get_contents($pipes[1]), true);
+        $stdout = (string)stream_get_contents($pipes[1]);
+        $stderr = (string)stream_get_contents($pipes[2]);
         fclose($pipes[1]);
-        proc_close($process);
+        fclose($pipes[2]);
+        self::assertSame(0, proc_close($process), $stderr);
+        $output = json_decode($stdout, true);
+        self::assertIsArray($output, $stdout . $stderr);
 
         $results = $output['results'];
         ksort($results);
         $expected = [
-            '600010' => true,
-            '300030' => true,
-            '110600' => true,
-            '110620' => true,
-            '200500' => true,
+            '600010' => false,
+            '300030' => false,
+            '110600' => false,
+            '110620' => false,
+            '200500' => false,
+            '200100' => false,
+            '999999' => false,
             '110100' => true,
             '110110' => true,
             '110200' => true,
             '400020' => true,
             '400070' => true,
-            '200100' => false,
-            '999999' => false,
         ];
         ksort($expected);
         self::assertSame($expected, $results);
-        // Each configuration code is reported once per page, however often it recurs.
+        // Each configuration code is reported once per page, however often it
+        // recurs and however often script() runs.
         self::assertSame([
             'Turnstile error 110100',
             'Turnstile error 110110',

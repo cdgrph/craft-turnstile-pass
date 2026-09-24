@@ -36,11 +36,13 @@ final class TurnstilePassVariable
         }
 
         // The callback precedes the API tag, so it exists before any widget runs.
-        // It shares the nonce and data-* attributes (such as data-cfasync), so
-        // a CSP or script loader treats both tags alike and keeps their order.
+        // It shares the nonce and data attributes (such as data-cfasync, given
+        // either as `data-*` keys or as Yii's `data` array), so a CSP or script
+        // loader treats both tags alike and keeps their order.
         $callbackOptions = array_filter(
             $options,
-            static fn($value, $name) => $name === 'nonce' || str_starts_with((string)$name, 'data-'),
+            static fn($value, $name) => in_array($name, ['nonce', 'data'], true)
+                || str_starts_with((string)$name, 'data-'),
             ARRAY_FILTER_USE_BOTH,
         );
 
@@ -87,7 +89,7 @@ final class TurnstilePassVariable
 
         // A caller-supplied callback name wins, and `false` opts out of any
         // callback. With retries disabled a retryable failure is final, so the
-        // default, which ignores those codes, would hide it.
+        // default, which leaves it to the console, would hide it from monitoring.
         $errorCallback = $attributes['data-error-callback'] ?? null;
         if ($errorCallback !== false && (!is_string($errorCallback) || $errorCallback === '')) {
             unset($attributes['data-error-callback']);
@@ -101,24 +103,22 @@ final class TurnstilePassVariable
 
     /**
      * Turnstile throws when a challenge fails and no error callback is set, so
-     * every transient failure surfaced as an uncaught exception. Retryable codes
-     * are left to Turnstile's automatic retry. Configuration codes are rethrown
-     * outside Turnstile, once per code and page, so error monitoring still sees
-     * them. Any other code is returned falsy, which makes Turnstile log a
-     * console warning instead of reporting a visitor-side failure as an error.
+     * every transient failure surfaced as an uncaught exception. Configuration
+     * codes are rethrown outside Turnstile, once per code and page, so error
+     * monitoring still sees them. Any other code is returned falsy, which makes
+     * Turnstile log a console warning instead of reporting a visitor-side
+     * failure as an error; retrying is unaffected by the return value. An
+     * existing definition is kept, so calling script() again does not reset
+     * what has been reported.
      */
     private static function defaultErrorCallbackScript(): string
     {
         return <<<'JS'
-window.turnstilePassOnError = (function () {
-    var retryable = ['110600', '110620', '200500'];
+window.turnstilePassOnError = window.turnstilePassOnError || (function () {
     var configuration = ['110100', '110110', '110200', '400020', '400070'];
     var reported = {};
     return function (code) {
         var errorCode = String(code);
-        if (/^(300|600)/.test(errorCode) || retryable.indexOf(errorCode) !== -1) {
-            return true;
-        }
         if (configuration.indexOf(errorCode) === -1) {
             return false;
         }
