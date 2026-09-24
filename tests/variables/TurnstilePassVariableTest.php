@@ -96,6 +96,158 @@ final class TurnstilePassVariableTest extends TestCase
         self::assertStringContainsString('data-sitekey="configured-site"', $widget);
     }
 
+    public function testWidgetPointsAtTheDefaultErrorCallback(): void
+    {
+        $this->configureOperational();
+
+        $widget = (string)$this->variable->widget();
+
+        self::assertStringContainsString('data-error-callback="turnstilePassOnError"', $widget);
+        self::assertStringNotContainsString('<script', $widget);
+    }
+
+    public function testWidgetKeepsACallerSuppliedErrorCallback(): void
+    {
+        $this->configureOperational();
+
+        foreach (['error-callback', 'data-error-callback'] as $key) {
+            $widget = (string)$this->variable->widget([$key => 'onSiteError']);
+
+            self::assertStringContainsString('data-error-callback="onSiteError"', $widget);
+            self::assertStringNotContainsString('turnstilePassOnError', $widget);
+        }
+    }
+
+    public function testWidgetOmitsTheErrorCallbackWhenTheCallerOptsOut(): void
+    {
+        $this->configureOperational();
+
+        $widget = (string)$this->variable->widget(['error-callback' => false]);
+
+        self::assertStringNotContainsString('error-callback', $widget);
+    }
+
+    public function testWidgetFallsBackToTheDefaultForAnEmptyErrorCallback(): void
+    {
+        $this->configureOperational();
+
+        foreach (['', null, true] as $value) {
+            $widget = (string)$this->variable->widget(['error-callback' => $value]);
+
+            self::assertStringContainsString('data-error-callback="turnstilePassOnError"', $widget);
+        }
+    }
+
+    public function testWidgetLeavesTheDefaultOutWhenRetryIsDisabled(): void
+    {
+        $this->configureOperational();
+
+        $widget = (string)$this->variable->widget(['retry' => 'never']);
+
+        self::assertStringNotContainsString('error-callback', $widget);
+    }
+
+    public function testScriptDefinesTheDefaultErrorCallbackBeforeTheApiTag(): void
+    {
+        $this->configureOperational();
+
+        $script = (string)$this->variable->script();
+
+        $definition = strpos($script, 'window.turnstilePassOnError');
+        self::assertIsInt($definition);
+        self::assertLessThan(strpos($script, 'challenges.cloudflare.com'), $definition);
+    }
+
+    public function testScriptAppliesTheNonceAndDataAttributesToBothTags(): void
+    {
+        $this->configureOperational();
+
+        $script = (string)$this->variable->script(['nonce' => 'abc123', 'data-cfasync' => 'false', 'id' => 'turnstile-api']);
+
+        self::assertSame(2, substr_count($script, 'nonce="abc123"'));
+        self::assertSame(2, substr_count($script, 'data-cfasync="false"'));
+        self::assertSame(1, substr_count($script, 'id="turnstile-api"'));
+        self::assertSame(1, substr_count($script, 'src='));
+
+        $script = (string)$this->variable->script(['data' => ['cfasync' => 'false']]);
+
+        self::assertSame(2, substr_count($script, 'data-cfasync="false"'));
+    }
+
+    /**
+     * Runs the rendered callback in Node, so the classification is checked by
+     * behaviour rather than by its source text. The script is evaluated twice,
+     * as it is when a page calls script() more than once.
+     */
+    public function testDefaultErrorCallbackReportsOnlyConfigurationCodes(): void
+    {
+        $node = trim((string)shell_exec('command -v node 2>/dev/null'));
+        if ($node === '') {
+            self::markTestSkipped('Node.js is not available.');
+        }
+
+        $this->configureOperational();
+        preg_match('#<script>(.*?)</script>#s', (string)$this->variable->script(), $match);
+        self::assertNotEmpty($match[1] ?? '');
+
+        $harness = <<<'JS'
+const window = {};
+const thrown = [];
+globalThis.setTimeout = (fn) => { try { fn(); } catch (e) { thrown.push(e.message); } };
+const source = require('fs').readFileSync(0, 'utf8');
+const results = {};
+const codes = ['600010', '300030', '110600', '110620', '200500', '200100', '999999', '110100', '110110', '110200', '400020', '400070'];
+eval(source);
+for (const code of codes) {
+    results[code] = window.turnstilePassOnError(Number(code));
+}
+eval(source);
+for (const code of codes) {
+    window.turnstilePassOnError(Number(code));
+}
+process.stdout.write(JSON.stringify({ results, thrown }));
+JS;
+        $process = proc_open([$node, '-e', $harness], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        self::assertIsResource($process);
+        fwrite($pipes[0], $match[1]);
+        fclose($pipes[0]);
+        $stdout = (string)stream_get_contents($pipes[1]);
+        $stderr = (string)stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        self::assertSame(0, proc_close($process), $stderr);
+        $output = json_decode($stdout, true);
+        self::assertIsArray($output, $stdout . $stderr);
+
+        $results = $output['results'];
+        ksort($results);
+        $expected = [
+            '600010' => false,
+            '300030' => false,
+            '110600' => false,
+            '110620' => false,
+            '200500' => false,
+            '200100' => false,
+            '999999' => false,
+            '110100' => true,
+            '110110' => true,
+            '110200' => true,
+            '400020' => true,
+            '400070' => true,
+        ];
+        ksort($expected);
+        self::assertSame($expected, $results);
+        // Each configuration code is reported once per page, however often it
+        // recurs and however often script() runs.
+        self::assertSame([
+            'Turnstile error 110100',
+            'Turnstile error 110110',
+            'Turnstile error 110200',
+            'Turnstile error 400020',
+            'Turnstile error 400070',
+        ], $output['thrown']);
+    }
+
     public function testScriptRendersApiTagWhenOperational(): void
     {
         $this->configureOperational();
