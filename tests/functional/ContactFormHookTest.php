@@ -7,6 +7,7 @@ use cdgrph\craftturnstilepass\Plugin;
 use cdgrph\craftturnstilepass\services\TurnstileService;
 use craft\base\Model;
 use craft\config\GeneralConfig;
+use craft\console\Request as ConsoleRequest;
 use craft\contactform\controllers\SendController;
 use craft\contactform\events\SendEvent;
 use craft\contactform\Mailer;
@@ -196,6 +197,7 @@ final class ContactFormHookTest extends TestCase
     public function testConsoleRequestIsIgnored(): void
     {
         $this->enablePlugin();
+        $this->useConsoleRequest();
         [$submission, $event] = $this->createSendEvent();
 
         Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
@@ -256,6 +258,7 @@ final class ContactFormHookTest extends TestCase
     public function testMisconfigurationIsNotLoggedForConsoleRequest(): void
     {
         $this->enablePluginWithoutKeys();
+        $this->useConsoleRequest();
         [, $event] = $this->createSendEvent();
 
         Event::trigger(Mailer::class, Mailer::EVENT_BEFORE_SEND, $event);
@@ -536,6 +539,7 @@ final class ContactFormHookTest extends TestCase
     public function testConsoleRequestLeavesValidationUntouched(): void
     {
         $this->enablePlugin();
+        $this->useConsoleRequest();
         $submission = $this->createValidSubmission();
 
         self::assertTrue($submission->validate());
@@ -903,6 +907,11 @@ final class ContactFormHookTest extends TestCase
         }
 
         return $messages;
+    }
+
+    private function useConsoleRequest(): void
+    {
+        \Yii::$app->set('request', new ConsoleRequest());
     }
 
     /**

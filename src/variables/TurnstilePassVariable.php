@@ -10,6 +10,8 @@ use Twig\Markup;
 
 final class TurnstilePassVariable
 {
+    private const DEFAULT_ERROR_CALLBACK = 'turnstilePassOnError';
+
     /**
      * Whether the plugin can render a working widget.
      *
@@ -71,7 +73,37 @@ final class TurnstilePassVariable
         $attributes['class'] = $class;
         $attributes['data-sitekey'] = $this->getSiteKey();
 
-        return Template::raw(Html::tag('div', '', $attributes));
+        // A caller-supplied callback wins, and `false` opts out of any callback.
+        $defaultErrorCallback = '';
+        if (!array_key_exists('data-error-callback', $attributes)) {
+            $attributes['data-error-callback'] = self::DEFAULT_ERROR_CALLBACK;
+            $defaultErrorCallback = Html::tag('script', self::defaultErrorCallbackScript());
+        }
+
+        return Template::raw($defaultErrorCallback . Html::tag('div', '', $attributes));
+    }
+
+    /**
+     * Turnstile throws when a challenge fails and no error callback is set, so
+     * every transient failure surfaced as an uncaught exception. Retryable codes
+     * are left to Turnstile's automatic retry; any other code is rethrown
+     * outside Turnstile so error monitoring still sees configuration problems.
+     * The script precedes the widget so the callback exists before it runs.
+     */
+    private static function defaultErrorCallbackScript(): string
+    {
+        return <<<'JS'
+window.turnstilePassOnError = function (code) {
+    var errorCode = String(code);
+    if (/^(300|600)/.test(errorCode) || ['110600', '110620', '200500'].indexOf(errorCode) !== -1) {
+        return true;
+    }
+    setTimeout(function () {
+        throw new Error('Turnstile error ' + errorCode);
+    });
+    return true;
+};
+JS;
     }
 
     /**

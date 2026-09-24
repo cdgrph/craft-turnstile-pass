@@ -96,6 +96,41 @@ final class TurnstilePassVariableTest extends TestCase
         self::assertStringContainsString('data-sitekey="configured-site"', $widget);
     }
 
+    public function testWidgetWiresTheDefaultErrorCallbackBeforeTheWidget(): void
+    {
+        $this->configureOperational();
+
+        $widget = (string)$this->variable->widget();
+
+        self::assertStringContainsString('data-error-callback="turnstilePassOnError"', $widget);
+        $definition = strpos($widget, 'window.turnstilePassOnError');
+        self::assertIsInt($definition);
+        self::assertLessThan(strpos($widget, '<div'), $definition);
+    }
+
+    public function testWidgetKeepsACallerSuppliedErrorCallback(): void
+    {
+        $this->configureOperational();
+
+        foreach (['error-callback', 'data-error-callback'] as $key) {
+            $widget = (string)$this->variable->widget([$key => 'onSiteError']);
+
+            self::assertStringContainsString('data-error-callback="onSiteError"', $widget);
+            self::assertStringNotContainsString('turnstilePassOnError', $widget);
+            self::assertStringNotContainsString('<script', $widget);
+        }
+    }
+
+    public function testWidgetOmitsTheErrorCallbackWhenTheCallerOptsOut(): void
+    {
+        $this->configureOperational();
+
+        $widget = (string)$this->variable->widget(['error-callback' => false]);
+
+        self::assertStringNotContainsString('error-callback', $widget);
+        self::assertStringNotContainsString('<script', $widget);
+    }
+
     public function testScriptRendersApiTagWhenOperational(): void
     {
         $this->configureOperational();

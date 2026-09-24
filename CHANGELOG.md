@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## 1.4.0 - 2026-09-24
+
+### Changed
+
+- `craft.turnstilePass.widget()` now renders a default `error-callback` in an inline script placed just before the widget, so a retryable Turnstile error no longer throws an uncaught JavaScript exception. Other codes, such as configuration problems, are rethrown as uncaught errors that name the code.
+- Passing your own `error-callback` replaces the default, and `'error-callback': false` renders the widget without any callback, as before. Under a Content Security Policy that blocks inline scripts the default callback does not run, and Turnstile throws as before.
+
 ## 1.3.0 - 2026-09-05
 
 ### Changed
