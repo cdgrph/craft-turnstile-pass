@@ -36,7 +36,13 @@ final class TurnstilePassVariable
         }
 
         // The callback precedes the API tag, so it exists before any widget runs.
-        $callbackOptions = isset($options['nonce']) ? ['nonce' => $options['nonce']] : [];
+        // It shares the nonce and data-* attributes (such as data-cfasync), so
+        // a CSP or script loader treats both tags alike and keeps their order.
+        $callbackOptions = array_filter(
+            $options,
+            static fn($value, $name) => $name === 'nonce' || str_starts_with((string)$name, 'data-'),
+            ARRAY_FILTER_USE_BOTH,
+        );
 
         return Template::raw(
             Html::script(self::defaultErrorCallbackScript(), $callbackOptions)
@@ -79,11 +85,11 @@ final class TurnstilePassVariable
         $attributes['class'] = $class;
         $attributes['data-sitekey'] = $this->getSiteKey();
 
-        // A caller-supplied callback wins, and `false` opts out of any callback.
-        // With retries disabled a retryable failure is final, so the default,
-        // which ignores those codes, would hide it.
+        // A caller-supplied callback name wins, and `false` opts out of any
+        // callback. With retries disabled a retryable failure is final, so the
+        // default, which ignores those codes, would hide it.
         $errorCallback = $attributes['data-error-callback'] ?? null;
-        if ($errorCallback === null || $errorCallback === '') {
+        if ($errorCallback !== false && (!is_string($errorCallback) || $errorCallback === '')) {
             unset($attributes['data-error-callback']);
             if (($attributes['data-retry'] ?? null) !== 'never') {
                 $attributes['data-error-callback'] = self::DEFAULT_ERROR_CALLBACK;
@@ -96,22 +102,35 @@ final class TurnstilePassVariable
     /**
      * Turnstile throws when a challenge fails and no error callback is set, so
      * every transient failure surfaced as an uncaught exception. Retryable codes
-     * are left to Turnstile's automatic retry; any other code is rethrown
-     * outside Turnstile so error monitoring still sees configuration problems.
+     * are left to Turnstile's automatic retry. Configuration codes are rethrown
+     * outside Turnstile, once per code and page, so error monitoring still sees
+     * them. Any other code is returned falsy, which makes Turnstile log a
+     * console warning instead of reporting a visitor-side failure as an error.
      */
     private static function defaultErrorCallbackScript(): string
     {
         return <<<'JS'
-window.turnstilePassOnError = function (code) {
-    var errorCode = String(code);
-    if (/^(300|600)/.test(errorCode) || ['110600', '110620', '200500'].indexOf(errorCode) !== -1) {
+window.turnstilePassOnError = (function () {
+    var retryable = ['110600', '110620', '200500'];
+    var configuration = ['110100', '110110', '110200', '400020', '400070'];
+    var reported = {};
+    return function (code) {
+        var errorCode = String(code);
+        if (/^(300|600)/.test(errorCode) || retryable.indexOf(errorCode) !== -1) {
+            return true;
+        }
+        if (configuration.indexOf(errorCode) === -1) {
+            return false;
+        }
+        if (!reported[errorCode]) {
+            reported[errorCode] = true;
+            setTimeout(function () {
+                throw new Error('Turnstile error ' + errorCode);
+            });
+        }
         return true;
-    }
-    setTimeout(function () {
-        throw new Error('Turnstile error ' + errorCode);
-    });
-    return true;
-};
+    };
+})();
 JS;
     }
 

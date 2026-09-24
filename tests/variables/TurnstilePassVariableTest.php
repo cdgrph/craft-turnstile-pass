@@ -131,7 +131,7 @@ final class TurnstilePassVariableTest extends TestCase
     {
         $this->configureOperational();
 
-        foreach (['', null] as $value) {
+        foreach (['', null, true] as $value) {
             $widget = (string)$this->variable->widget(['error-callback' => $value]);
 
             self::assertStringContainsString('data-error-callback="turnstilePassOnError"', $widget);
@@ -158,27 +158,78 @@ final class TurnstilePassVariableTest extends TestCase
         self::assertLessThan(strpos($script, 'challenges.cloudflare.com'), $definition);
     }
 
-    public function testScriptAppliesTheNonceToBothTags(): void
+    public function testScriptAppliesTheNonceAndDataAttributesToBothTags(): void
     {
         $this->configureOperational();
 
-        $script = (string)$this->variable->script(['nonce' => 'abc123']);
+        $script = (string)$this->variable->script(['nonce' => 'abc123', 'data-cfasync' => 'false', 'id' => 'turnstile-api']);
 
         self::assertSame(2, substr_count($script, 'nonce="abc123"'));
+        self::assertSame(2, substr_count($script, 'data-cfasync="false"'));
+        self::assertSame(1, substr_count($script, 'id="turnstile-api"'));
+        self::assertSame(1, substr_count($script, 'src='));
     }
 
     /**
-     * Pins Cloudflare's retryable codes. Anything outside this list is
-     * rethrown, so a slip here turns visitor-side noise back into errors.
+     * Runs the rendered callback in Node, so the classification is checked by
+     * behaviour rather than by its source text.
      */
-    public function testDefaultErrorCallbackIgnoresExactlyTheRetryableCodes(): void
+    public function testDefaultErrorCallbackReportsOnlyConfigurationCodes(): void
     {
+        $node = trim((string)shell_exec('command -v node 2>/dev/null'));
+        if ($node === '') {
+            self::markTestSkipped('Node.js is not available.');
+        }
+
         $this->configureOperational();
+        preg_match('#<script>(.*?)</script>#s', (string)$this->variable->script(), $match);
+        self::assertNotEmpty($match[1] ?? '');
 
-        $script = (string)$this->variable->script();
+        $harness = <<<'JS'
+const window = {};
+const thrown = [];
+globalThis.setTimeout = (fn) => { try { fn(); } catch (e) { thrown.push(e.message); } };
+eval(require('fs').readFileSync(0, 'utf8'));
+const results = {};
+for (const code of ['600010', '300030', '110600', '110620', '200500', '110100', '110110', '110200', '400020', '400070', '400020', '200100', '999999']) {
+    results[code] = window.turnstilePassOnError(Number(code));
+}
+process.stdout.write(JSON.stringify({ results, thrown }));
+JS;
+        $process = proc_open([$node, '-e', $harness], [0 => ['pipe', 'r'], 1 => ['pipe', 'w']], $pipes);
+        self::assertIsResource($process);
+        fwrite($pipes[0], $match[1]);
+        fclose($pipes[0]);
+        $output = json_decode((string)stream_get_contents($pipes[1]), true);
+        fclose($pipes[1]);
+        proc_close($process);
 
-        self::assertStringContainsString("/^(300|600)/.test(errorCode)", $script);
-        self::assertStringContainsString("['110600', '110620', '200500'].indexOf(errorCode) !== -1", $script);
+        $results = $output['results'];
+        ksort($results);
+        $expected = [
+            '600010' => true,
+            '300030' => true,
+            '110600' => true,
+            '110620' => true,
+            '200500' => true,
+            '110100' => true,
+            '110110' => true,
+            '110200' => true,
+            '400020' => true,
+            '400070' => true,
+            '200100' => false,
+            '999999' => false,
+        ];
+        ksort($expected);
+        self::assertSame($expected, $results);
+        // Each configuration code is reported once per page, however often it recurs.
+        self::assertSame([
+            'Turnstile error 110100',
+            'Turnstile error 110110',
+            'Turnstile error 110200',
+            'Turnstile error 400020',
+            'Turnstile error 400070',
+        ], $output['thrown']);
     }
 
     public function testScriptRendersApiTagWhenOperational(): void
