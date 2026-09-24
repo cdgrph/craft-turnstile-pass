@@ -35,11 +35,17 @@ final class TurnstilePassVariable
             return Template::raw('');
         }
 
-        return Template::raw(Html::tag('script', '', array_merge([
-            'src' => 'https://challenges.cloudflare.com/turnstile/v0/api.js',
-            'async' => true,
-            'defer' => true,
-        ], $options)));
+        // The callback precedes the API tag, so it exists before any widget runs.
+        $callbackOptions = isset($options['nonce']) ? ['nonce' => $options['nonce']] : [];
+
+        return Template::raw(
+            Html::script(self::defaultErrorCallbackScript(), $callbackOptions)
+            . Html::tag('script', '', array_merge([
+                'src' => 'https://challenges.cloudflare.com/turnstile/v0/api.js',
+                'async' => true,
+                'defer' => true,
+            ], $options))
+        );
     }
 
     public function widget(array $options = []): Markup
@@ -74,13 +80,17 @@ final class TurnstilePassVariable
         $attributes['data-sitekey'] = $this->getSiteKey();
 
         // A caller-supplied callback wins, and `false` opts out of any callback.
-        $defaultErrorCallback = '';
-        if (!array_key_exists('data-error-callback', $attributes)) {
-            $attributes['data-error-callback'] = self::DEFAULT_ERROR_CALLBACK;
-            $defaultErrorCallback = Html::tag('script', self::defaultErrorCallbackScript());
+        // With retries disabled a retryable failure is final, so the default,
+        // which ignores those codes, would hide it.
+        $errorCallback = $attributes['data-error-callback'] ?? null;
+        if ($errorCallback === null || $errorCallback === '') {
+            unset($attributes['data-error-callback']);
+            if (($attributes['data-retry'] ?? null) !== 'never') {
+                $attributes['data-error-callback'] = self::DEFAULT_ERROR_CALLBACK;
+            }
         }
 
-        return Template::raw($defaultErrorCallback . Html::tag('div', '', $attributes));
+        return Template::raw(Html::tag('div', '', $attributes));
     }
 
     /**
@@ -88,7 +98,6 @@ final class TurnstilePassVariable
      * every transient failure surfaced as an uncaught exception. Retryable codes
      * are left to Turnstile's automatic retry; any other code is rethrown
      * outside Turnstile so error monitoring still sees configuration problems.
-     * The script precedes the widget so the callback exists before it runs.
      */
     private static function defaultErrorCallbackScript(): string
     {

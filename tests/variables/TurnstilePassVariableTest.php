@@ -96,16 +96,14 @@ final class TurnstilePassVariableTest extends TestCase
         self::assertStringContainsString('data-sitekey="configured-site"', $widget);
     }
 
-    public function testWidgetWiresTheDefaultErrorCallbackBeforeTheWidget(): void
+    public function testWidgetPointsAtTheDefaultErrorCallback(): void
     {
         $this->configureOperational();
 
         $widget = (string)$this->variable->widget();
 
         self::assertStringContainsString('data-error-callback="turnstilePassOnError"', $widget);
-        $definition = strpos($widget, 'window.turnstilePassOnError');
-        self::assertIsInt($definition);
-        self::assertLessThan(strpos($widget, '<div'), $definition);
+        self::assertStringNotContainsString('<script', $widget);
     }
 
     public function testWidgetKeepsACallerSuppliedErrorCallback(): void
@@ -117,7 +115,6 @@ final class TurnstilePassVariableTest extends TestCase
 
             self::assertStringContainsString('data-error-callback="onSiteError"', $widget);
             self::assertStringNotContainsString('turnstilePassOnError', $widget);
-            self::assertStringNotContainsString('<script', $widget);
         }
     }
 
@@ -128,7 +125,60 @@ final class TurnstilePassVariableTest extends TestCase
         $widget = (string)$this->variable->widget(['error-callback' => false]);
 
         self::assertStringNotContainsString('error-callback', $widget);
-        self::assertStringNotContainsString('<script', $widget);
+    }
+
+    public function testWidgetFallsBackToTheDefaultForAnEmptyErrorCallback(): void
+    {
+        $this->configureOperational();
+
+        foreach (['', null] as $value) {
+            $widget = (string)$this->variable->widget(['error-callback' => $value]);
+
+            self::assertStringContainsString('data-error-callback="turnstilePassOnError"', $widget);
+        }
+    }
+
+    public function testWidgetLeavesTheDefaultOutWhenRetryIsDisabled(): void
+    {
+        $this->configureOperational();
+
+        $widget = (string)$this->variable->widget(['retry' => 'never']);
+
+        self::assertStringNotContainsString('error-callback', $widget);
+    }
+
+    public function testScriptDefinesTheDefaultErrorCallbackBeforeTheApiTag(): void
+    {
+        $this->configureOperational();
+
+        $script = (string)$this->variable->script();
+
+        $definition = strpos($script, 'window.turnstilePassOnError');
+        self::assertIsInt($definition);
+        self::assertLessThan(strpos($script, 'challenges.cloudflare.com'), $definition);
+    }
+
+    public function testScriptAppliesTheNonceToBothTags(): void
+    {
+        $this->configureOperational();
+
+        $script = (string)$this->variable->script(['nonce' => 'abc123']);
+
+        self::assertSame(2, substr_count($script, 'nonce="abc123"'));
+    }
+
+    /**
+     * Pins Cloudflare's retryable codes. Anything outside this list is
+     * rethrown, so a slip here turns visitor-side noise back into errors.
+     */
+    public function testDefaultErrorCallbackIgnoresExactlyTheRetryableCodes(): void
+    {
+        $this->configureOperational();
+
+        $script = (string)$this->variable->script();
+
+        self::assertStringContainsString("/^(300|600)/.test(errorCode)", $script);
+        self::assertStringContainsString("['110600', '110620', '200500'].indexOf(errorCode) !== -1", $script);
     }
 
     public function testScriptRendersApiTagWhenOperational(): void

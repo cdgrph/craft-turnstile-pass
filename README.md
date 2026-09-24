@@ -106,7 +106,7 @@ A submission that fails the Submission model's own validation rules — a missin
 
 A rejection is not itself recorded in Craft's logs. Contact Form reports it at a level production logging drops, so the rate at which visitors are turned away is not visible there. The plugin logs only the causes it can name: a missing secret key, an oversized token, a request that could not reach Cloudflare, an unreadable response, and an incomplete configuration.
 
-This applies to rejections by Turnstile Pass only. Another plugin that marks a Contact Form submission as spam, such as `craftcms/contact-form-honeypot`, takes Contact Form's spam path instead, which logs a warning that production logging keeps. For a web request that logs anything, Craft also writes a request context entry that includes `$_POST` by default, so the submitted name, email address, and message are written to the log in plain text. Limiting them is a Craft logging setting (the log target's `logVars`), not a Turnstile Pass setting.
+This applies to rejections by Turnstile Pass only. Another plugin that marks a Contact Form submission as spam, such as a honeypot check, takes Contact Form's spam path instead, which logs a warning that production logging keeps. For a web request that logs anything, Craft also writes a request context entry that includes `$_POST` by default, so the submitted name, email address, and message are written to the log in plain text. Limiting them is a Craft logging setting (the log target's `logVars`), not a Turnstile Pass setting.
 
 A token is missing for reasons other than a bot. A Content Security Policy violation, an ad blocker, a network error, an expired challenge, or an unsupported browser all leave the response field empty. Invisible mode shows no widget, checkbox, or loading indicator, so what the form itself renders on failure is all the visitor sees.
 
@@ -118,9 +118,11 @@ The visitor is told only while Contact Form's own send action is handling the re
 
 Client-side failures are reported through `error-callback`; see Cloudflare's [client-side errors guide](https://developers.cloudflare.com/turnstile/troubleshooting/client-side-errors/). If no callback is configured, a challenge failure throws a JavaScript exception that appears as an uncaught error in global error handlers and error-monitoring tools.
 
-`widget()` therefore configures a default callback, `turnstilePassOnError`, defined in an inline script rendered just before the widget. It ignores retryable codes and leaves them to Turnstile's automatic retry; if you set `retry` to `never`, pass your own callback, because the default then leaves a retryable failure unreported. Any other code is rethrown as an uncaught `Error` whose message carries the code, so a configuration problem still reaches global error handlers and error-monitoring tools. It shows the visitor nothing.
+Turnstile Pass therefore provides a default callback, `turnstilePassOnError`. `script()` defines it in an inline script placed just before the Turnstile script, and `widget()` points each widget at it. It ignores retryable codes and leaves them to Turnstile's automatic retry. Any other code is rethrown as an uncaught `Error` whose message carries the code, so a configuration problem still reaches global error handlers and error-monitoring tools. It shows the visitor nothing.
 
-Pass your own `error-callback` to replace the default; the default script is then not rendered. Pass `'error-callback': false` to render the widget without any callback, as before 1.4.0:
+The default depends on `script()`. A page that loads the Turnstile script itself instead does not define the callback, and Turnstile throws as though no callback were configured.
+
+Pass your own `error-callback` to replace the default; an empty value keeps the default. `widget()` leaves the default out when you set `retry` to `never`, because a retryable failure is then final and the default would hide it. Pass `'error-callback': false` to render the widget without any callback, as before 1.4.0:
 
 ```twig
 {{ craft.turnstilePass.widget({ 'error-callback': false }) }}
@@ -166,7 +168,7 @@ With implicit rendering, specify the callback's global function name as a string
 
 If no error callback is configured, Turnstile throws a JavaScript exception. If a callback is configured, a falsy return value (including `undefined`) causes Turnstile to log a warning containing the error code to the JavaScript console, while a non-falsy return value suppresses additional error logging. A configuration problem reaches your own monitoring only if the callback reports it itself.
 
-The example defines its callbacks in an inline script, and so does the default callback. A Content Security Policy that blocks inline scripts prevents that block from running, leaves the callback undefined, and makes Turnstile behave as though no callback were configured, resulting in the exception described above; move the callbacks to an external file, or serve them with a nonce that your policy allows. The default script carries no nonce, so under such a policy pass a callback of your own from an allowed script. The Content Security Policy section covers the Cloudflare hosts Turnstile itself requires. The example also uses a fixed element ID and fixed global function names, so pages with multiple protected forms must assign a unique ID and function name to each form or every widget writes to the first matching element.
+The example defines its callbacks in an inline script, and so does `script()` for the default callback. A Content Security Policy that blocks inline scripts prevents that block from running, leaves the callback undefined, and makes Turnstile behave as though no callback were configured, resulting in the exception described above; move the callbacks to an external file, or serve them with a nonce that your policy allows. A `nonce` passed to `script()` is applied to both of its tags. The Content Security Policy section covers the Cloudflare hosts Turnstile itself requires. The example also uses a fixed element ID and fixed global function names, so pages with multiple protected forms must assign a unique ID and function name to each form or every widget writes to the first matching element.
 
 Turnstile retries automatically. The default `retry` value is `auto`, and the default `retry-interval` is 8000 ms, so transient failures retry without visitor action; see the [widget configuration reference](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/widget-configurations/).
 
@@ -176,7 +178,7 @@ Invisible mode displays no widget, checkbox, or loading indicator, so an error o
 
 ## Content Security Policy
 
-Turnstile requires `https://challenges.cloudflare.com` to be allowed by both the `script-src` and `frame-src` directives in your Content Security Policy. Without both directives, the script or its iframe can be blocked and token generation can fail. See Cloudflare's [Turnstile Content Security Policy reference](https://developers.cloudflare.com/turnstile/reference/content-security-policy/).
+Turnstile requires `https://challenges.cloudflare.com` to be allowed by both the `script-src` and `frame-src` directives in your Content Security Policy. Without both directives, the script or its iframe can be blocked and token generation can fail. `script()` also renders an inline script that defines the default error callback; a policy that blocks inline scripts needs the `nonce` option, for example `{{ craft.turnstilePass.script({ nonce: yourNonce }) }}`, or the callback is left undefined as described under Error handling. See Cloudflare's [Turnstile Content Security Policy reference](https://developers.cloudflare.com/turnstile/reference/content-security-policy/).
 
 ## Server-side verification (custom forms)
 

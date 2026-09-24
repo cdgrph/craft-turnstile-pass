@@ -8,8 +8,9 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Changed
 
-- `craft.turnstilePass.widget()` now renders a default `error-callback` in an inline script placed just before the widget, so a retryable Turnstile error no longer throws an uncaught JavaScript exception. Other codes, such as configuration problems, are rethrown as uncaught errors that name the code.
-- Passing your own `error-callback` replaces the default, and `'error-callback': false` renders the widget without any callback, as before. Under a Content Security Policy that blocks inline scripts the default callback does not run, and Turnstile throws as before.
+- Widgets now use a default `error-callback`, so a retryable Turnstile error no longer throws an uncaught JavaScript exception. Other codes, such as configuration problems, are rethrown as uncaught errors that name the code.
+- `craft.turnstilePass.script()` defines the default callback in an inline script before the Turnstile script tag, and applies a `nonce` option to both tags. A page that loads the Turnstile script without `script()`, or whose Content Security Policy blocks the inline script, behaves as before.
+- `craft.turnstilePass.widget()` keeps a caller-supplied `error-callback`, renders no callback for `'error-callback': false`, and leaves the default out when `retry` is `never`.
 
 ## 1.3.0 - 2026-09-05
 
